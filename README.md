@@ -38,6 +38,8 @@
 
 ### 용어
 
+![근육 위치](presentation/figs/fig_muscles.png)
+
 ![용어](presentation/figs/fig_terms.png)
 
 | 용어 | 뜻 |

@@ -181,6 +181,114 @@ def fig_terms(out: Path):
     plt.close(fig)
 
 
+# ---------------------------------------------------------------- 1-3. 근육 위치 (착석 단계 + 확대 상자)
+
+MUSCLE, MUSCLE_DARK, SKIN, TENDON = "#d9644f", "#a8412f", "#efe3d6", "#f7f2ea"
+
+
+def _spindle(ax, cx, cy, length, width, angle, fibers=7, z=3):
+    """근육 한 갈래(방추형)를 결(fiber) 선과 함께 그린다. angle: 수직 기준(deg)."""
+    t = np.linspace(-1, 1, 80)
+    half = width / 2 * (1 - t ** 2) ** 0.7
+    a = np.radians(angle)
+    axis, perp = np.array([np.sin(a), np.cos(a)]), np.array([np.cos(a), -np.sin(a)])
+    left = np.c_[t * length / 2, half] @ np.vstack([axis, perp])
+    right = np.c_[t * length / 2, -half] @ np.vstack([axis, perp])
+    poly = np.vstack([left, right[::-1]]) + [cx, cy]
+    ax.fill(poly[:, 0], poly[:, 1], color=MUSCLE, ec=MUSCLE_DARK, lw=1.2, zorder=z)
+    for k in np.linspace(-0.7, 0.7, fibers):
+        f = np.c_[t * length / 2 * 0.92, half * k] @ np.vstack([axis, perp]) + [cx, cy]
+        ax.plot(f[:, 0], f[:, 1], c=MUSCLE_DARK, lw=0.6, alpha=0.6, zorder=z + 1)
+    for sgn in (-1, 1):                               # 양 끝 힘줄
+        e = np.array([cx, cy]) + axis * sgn * length / 2
+        ax.plot([e[0], e[0] + axis[0] * sgn * 0.06], [e[1], e[1] + axis[1] * sgn * 0.06],
+                c=TENDON, lw=5, solid_capstyle="round", zorder=z)
+
+
+def _inset(fig, rect, kind, title):
+    """확대 상자: 둥근 테두리 + 피부 실루엣 + 근육."""
+    from matplotlib.patches import FancyBboxPatch
+    ax = fig.add_axes(rect)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+    ax.add_patch(FancyBboxPatch((0.02, 0.02), 0.96, 0.96, boxstyle="round,pad=0,rounding_size=0.08",
+                                fc="#f4f5f4", ec=WINE, lw=2.5, transform=ax.transAxes, zorder=0))
+    if kind == "glute":       # 뒤에서 본 엉덩이: 엉덩이 실루엣 위에 큰 대둔근
+        th = np.linspace(0, 2 * np.pi, 100)
+        ax.fill(0.5 + 0.36 * np.cos(th), 0.52 + 0.34 * np.sin(th), color=SKIN, zorder=1)
+        ax.fill([0.22, 0.78, 0.7, 0.3], [0.3, 0.3, 0.02, 0.02], color=SKIN, zorder=1)
+        _spindle(ax, 0.5, 0.55, 0.9, 0.52, 52, fibers=11)
+    else:                     # 뒤에서 본 허벅지: 햄스트링 두 갈래
+        ax.fill([0.28, 0.72, 0.64, 0.36], [0.98, 0.98, 0.02, 0.02], color=SKIN, zorder=1)
+        _spindle(ax, 0.42, 0.5, 0.78, 0.2, 4)
+        _spindle(ax, 0.58, 0.5, 0.78, 0.2, -4)
+    ax.text(1.08, 0.5, title, ha="left", va="center", fontsize=18, fontweight="bold", color=WINE,
+            transform=ax.transAxes, linespacing=1.4)
+    return ax
+
+
+def fig_muscles(out: Path):
+    from matplotlib.patches import Arc, FancyArrowPatch
+    W, H = 15.0, 5.6
+    fig = plt.figure(figsize=(W, H))
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, W)
+    ax.set_ylim(0, H)
+    ax.axis("off")
+    S = 2.6                                            # 인형 크기
+
+    def person(x0, angles, chair=False):
+        ankle, knee, hip, shoulder, head, _ = (p * S + [x0, 0.85] for p in _pose(*angles))
+        if chair:
+            ax.add_patch(plt.Rectangle((hip[0] - 0.9, 0.85), 0.75, hip[1] - 0.95, color="#d5d8d5", zorder=0))
+        ax.plot([ankle[0] - 0.12, ankle[0] + 0.45], [0.85, 0.85], c="#1a1a1c", lw=7, solid_capstyle="round")
+        ax.plot(*np.array([shoulder, hip]).T, c="#1a1a1c", lw=8, solid_capstyle="round", zorder=3)
+        ax.plot(*np.array([hip, knee, ankle]).T, c=WINE, lw=9, alpha=0.45, solid_capstyle="round", zorder=3)
+        ax.plot(*np.array([hip, knee, ankle]).T, c="#1a1a1c", lw=3, solid_capstyle="round", zorder=4)
+        ax.add_patch(plt.Circle(head, 0.24, color="#1a1a1c", zorder=3))
+        for j in (hip, knee, ankle):
+            ax.add_patch(plt.Circle(j, 0.09, color=WINE, ec="white", lw=1.5, zorder=5))
+        return ankle, knee, hip, shoulder
+
+    def tri(x, y):
+        ax.add_patch(plt.Polygon([[x, y - 0.25], [x, y + 0.25], [x + 0.32, y]], color=WINE, zorder=6))
+
+    # ① 서 있음
+    person(1.0, (0, 2, 2))
+    ax.text(1.1, 0.35, "① 서 있음", ha="center", fontsize=18, fontweight="bold")
+    tri(2.05, 2.6)
+    # ② 내려가는 중 + 확대 상자 2개
+    ankle, knee, hip, shoulder = person(3.9, (14, 48, 38))
+    ax.text(3.6, 0.35, "② 내려가는 중", ha="center", fontsize=18, fontweight="bold")
+    ax.add_patch(FancyArrowPatch(shoulder + [-0.6, 0.5], shoulder + [0.15, 0.55], connectionstyle="arc3,rad=-0.4",
+                                 arrowstyle="-|>", mutation_scale=22, lw=3, ls="--", color=WINE))
+    back = _thigh_back(knee, hip)
+    glute_pt = hip + np.array([-0.16, 0.14])
+    ham_pt = (hip + knee) / 2 + back * 0.12
+    g_rect, h_rect = [0.37, 0.53, 0.15, 0.40], [0.37, 0.08, 0.15, 0.40]
+    _inset(fig, g_rect, "glute", "대둔근\n(엉덩이)")
+    _inset(fig, h_rect, "ham", "햄스트링\n(허벅지 뒤)")
+    for pt, r in ((glute_pt, g_rect), (ham_pt, h_rect)):
+        tgt = (r[0] * W + 0.05, (r[1] + r[3] / 2) * H)
+        ax.plot([pt[0], tgt[0]], [pt[1], tgt[1]], c=WINE, lw=2, zorder=6)
+        ax.add_patch(plt.Circle(pt, 0.07, color=WINE, zorder=7))
+    ax.text(8.45, 2.75, "늘어나면서 힘을 내\n하강을 늦춥니다\n= 편심성 수축", fontsize=16, color="#1a1a1c",
+            ha="left", va="center", linespacing=1.5)
+    tri(10.3, 2.6)
+    # ③ 착석 + H10 신전 토크
+    ankle, knee, hip, shoulder = person(13.1, (10, 84, 12), chair=True)
+    ax.text(12.6, 0.35, "③ 착석", ha="center", fontsize=18, fontweight="bold")
+    ax.add_patch(Arc(hip, 0.9, 0.9, theta1=110, theta2=250, color=WINE, lw=3.5, zorder=6))
+    tip = hip + 0.45 * np.array([np.cos(np.radians(250)), np.sin(np.radians(250))])
+    ax.add_patch(FancyArrowPatch(tip + [-0.08, 0.06], tip + [0.02, -0.02], arrowstyle="-|>", mutation_scale=24,
+                                 lw=3, color=WINE, zorder=6))
+    ax.text(11.0, 4.55, "H10 신전 토크가 같은 방향으로 보조", fontsize=16, color=WINE, fontweight="bold",
+            ha="left", va="center")
+    fig.savefig(out / "fig_muscles.png", dpi=200, facecolor="white")
+    plt.close(fig)
+
+
 # ---------------------------------------------------------------- 2. 개인 기준값
 
 def fig_profile(p: dict, prof: Profile, out: Path, cfg: Config = Config(), highlight: int | None = None):
@@ -307,6 +415,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     fig_posture(out)
     fig_terms(out)
+    fig_muscles(out)
 
     real = load_participant(Path(args.real))
     prof = Profile.from_trials(real["calib"])
