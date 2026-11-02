@@ -18,9 +18,10 @@
 | | 내용 |
 |---|---|
 | 더 깊이 굽혀야 합니다 | 실측에서 30 cm 의자는 45 cm보다 허벅지가 9° 더 굽혀졌습니다. |
-| 가장 약한 자세에서 버텨야 합니다 | 깊게 굽힌 자세일수록 고관절 신전근이 체중을 버티기 어렵습니다. 의자가 낮을수록 하지 관절 부하가 커집니다[^rodosky]. |
+| 더 오래, 더 숙여서 버텨야 합니다 | 의자가 낮을수록 동작 시간이 길어지고(40 cm 1.6초 → 30 cm 2.0초) 상체를 더 숙여야 합니다(34.6° → 약 39°)[^yoshioka]. |
 | 마지막 순간이 가장 빠릅니다 | 제동이 풀리면 착석 직전에 속도가 붙어 의자에 세게 부딪히거나 뒤로 넘어지기 쉽습니다. |
 | 생활 곳곳에 있습니다 | 소파, 좌변기, 좌식 의자처럼 매일 앉는 자리가 낮습니다. |
+| 손으로 짚으면 되지 않나요? | 팔로 버티는 것은 하지 기능 저하를 가리는 보상 전략입니다[^vanderkruk]. 지팡이·짐을 든 상황이나 팔걸이 없는 소파·좌변기에서는 쓸 수 없습니다. |
 
 그래서 알고리즘에는 **DEEP 단계(평소 착석 각도 + 2SD를 넘어 계속 내려감 → 낮은 의자로 판단, 제동 1.5배)** 가 있습니다.
 
@@ -32,7 +33,8 @@
 | 신체 특성 | 독립 보행 가능 · 하지 근력 저하 |
 | 문제 상황 | 낮은 소파 · 좌변기 · 낮은 의자 |
 | 착석 특성 | 착석 후반부에서 하강 속도를 제어하지 못하고 털썩 앉음 |
-| 왜 문제인가 | 앉기·일어서기 같은 자세 전환은 고령자 낙상이 자주 일어나는 순간[^robinovitch] |
+| 왜 문제인가 | 앉기·일어서기 같은 자세 전환은 고령자 낙상이 자주 일어나는 순간[^robinovitch]. 지역사회 고령자는 앉을 때 젊은 성인보다 상체를 약 10° 덜 숙이고[^dubost], 낙상 고위험 고령자 낙상의 17.6%가 뒤로 주저앉는 방향입니다[^stevens]. |
+| 규모 | 한국 70~84세 근감소증 유병률 남 26.8%·여 18.8%[^kim2025], 65세 이상 낙상 경험률 7.2%[^survey2020] |
 
 ### 용어
 
@@ -42,7 +44,7 @@
 |---|---|
 | 굴곡 · 신전 | 굴곡은 관절을 굽히는 움직임, 신전은 펴는 움직임입니다. 앉을 때 고관절은 굴곡합니다. |
 | 고관절 신전근 | 엉덩이의 대둔근과 허벅지 뒤의 햄스트링입니다. 다리를 뒤로 펴는 힘을 냅니다. |
-| 편심성 수축 | 근육이 늘어나면서 힘을 내는 수축입니다. 앉을 때 하강 속도를 늦추는 브레이크가 됩니다. |
+| 편심성 수축 | 근육이 늘어나면서 힘을 내는 수축입니다. 앉을 때 하강 속도를 늦추는 브레이크가 됩니다. 부드럽게 앉을수록 고관절 근육의 기여가 커집니다[^jeon]. |
 | 근감소증 | 나이가 들며 근육량과 근력이 함께 줄어드는 질환입니다.[^awgs] |
 | IMU | 가속도와 회전 속도로 기울기와 움직임을 재는 관성 센서입니다. |
 | 엔코더 (incPosDeg) | 고관절 모터의 회전 센서로 잰 각도입니다. 허벅지 IMU 각도를 빼면 상체 기울기가 됩니다. |
@@ -197,5 +199,11 @@ python compare_h10_runs.py --off <OFF 로그들> --on <ON 로그들> --out resul
 
 [^robinovitch]: Robinovitch SN, Feldman F, Yang Y, et al. Video capture of the circumstances of falls in elderly people residing in long-term care: an observational study. *Lancet*. 2013;381(9860):47–54.
 [^awgs]: Chen LK, Woo J, Assantachai P, et al. Asian Working Group for Sarcopenia: 2019 Consensus Update on Sarcopenia Diagnosis and Treatment. *J Am Med Dir Assoc*. 2020;21(3):300–307.e2.
-[^rodosky]: Rodosky MW, Andriacchi TP, Andersson GBJ. The influence of chair height on lower limb mechanics during rising. *J Orthop Res*. 1989;7(2):266–271.
+[^yoshioka]: Yoshioka S, Nagano A, Hay DC, Fukashiro S. Peak hip and knee joint moments during a sit-to-stand movement are invariant to the change of seat height within the range of low to normal seat height. *BioMed Eng OnLine*. 2014;13:27. (젊은 성인 8명, 일어서기 동작)
+[^dubost]: Dubost V, Beauchet O, Manckoundia P, et al. Decreased trunk angular displacement during sitting down: an early feature of aging. *Phys Ther*. 2005;85(5):404–412.
+[^stevens]: Stevens JA, Mahoney JE, Ehrenreich H. Circumstances and outcomes of falls among high risk community-dwelling older adults. *Inj Epidemiol*. 2014;1:5.
+[^vanderkruk]: van der Kruk E, Silverman AK, Reilly P, Bull AMJ. Compensation due to age-related decline in sit-to-stand and sit-to-walk. *J Biomech*. 2021;122:110411.
+[^jeon]: Jeon et al. *Front Hum Neurosci*. 2024. 앉기는 일어서기의 역동작이 아니라 하강 중 균형 제어가 필요한 동작이며, 부드럽게 앉을수록 고관절 근육의 기여가 커집니다 (젊은 성인 12명).
+[^kim2025]: Kim et al. *Medicina*. 2025;61(6):1065 (Kim & Won 2020 재인용).
+[^survey2020]: 보건복지부. 2020 노인실태조사 (언론 보도 재인용).
 [^jerk]: Balasubramanian S, Melendez-Calderon A, Roby-Brami A, Burdet E. On the analysis of movement smoothness. *J NeuroEng Rehabil*. 2015;12:112.

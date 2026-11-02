@@ -204,10 +204,10 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     text(s, L, 22.2, CW, 1.8, ["왜 낮은 의자인가?"], size=34, bold=True)
     text(s, L, 24.0, CW, 7.6, [
         [("① 더 깊이 굽혀야 한다: ", {"bold": True}), "실측에서 30 cm 의자는 45 cm보다 허벅지가 9° 더 굽혀졌다."],
-        [("② 가장 약한 자세에서 버텨야 한다: ", {"bold": True}), "깊게 굽힐수록 고관절 신전근¹이 체중을 버티기 어렵다.[3]"],
+        [("② 더 오래, 더 숙여서 버텨야 한다: ", {"bold": True}), "낮을수록 동작이 길고(1.6→2.0초) 더 숙인다.[3]"],
         [("③ 마지막 순간이 가장 빠르다: ", {"bold": True}),
          ("털썩 주저앉거나 뒤로 넘어지기 쉽다.", {"bold": True, "color": WINE}), "[1]"],
-        [("④ 생활 곳곳에 있다: ", {"bold": True}), "소파 · 좌변기 · 좌식 의자"]], size=27, space_after=6)
+        [("④ 생활 곳곳에 있다: ", {"bold": True}), "팔걸이 없는 소파 · 좌변기. 손으로 짚기는 보상 전략일 뿐이다.[7]"]], size=27, space_after=6)
     box(s, L, 31.0, CW, 2.2, [[("타깃: ", {"bold": True}), "착석 제어가 어려운 근감소증 위험 고령자 (AWGS 2019[2]: 5회 의자 일어서기 ≥ 12초)"]],
         size=22, align=PP_ALIGN.LEFT)
     text(s, L, 33.5, CW, 1.6, ["기존 방법은 측정과 개입을 동시에 하지 못한다"], size=30, bold=True)
@@ -226,8 +226,8 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     picture(s, figs / "fig_posture.png", R, 24.0, CW)
     text(s, R, 38.4, CW, 4.4, [
         ["고관절 신전근¹은 편심성 수축²으로 ", ("① 숙인 상체를 버티고 ② 하강 속도를 제동", {"bold": True}),
-         "한다. 근력이 약하면 둘 다 무너져 상체를 세운 채 빠르게 내려가고, ",
-         ("무게중심이 발 뒤로 빠진다.", {"bold": True, "color": WINE})]])
+         "한다. 고령자는 상체를 약 10° 덜 숙이고[5], 근력이 약하면 빠르게 내려가며 ",
+         ("무게중심이 발 뒤로 빠진다", {"bold": True, "color": WINE}), " (고령자 낙상의 17.6%가 뒤로 주저앉음[6])."]])
     box(s, R, 43.0, CW, 3.3, [["H10 고관절 ", ("신전 토크", {"bold": True}), " 하나로"],
                               [("상체 지지 + 하강 제동", {"bold": True, "color": WINE}), "을 동시에 보조"]], size=30)
 
@@ -304,8 +304,11 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
          "size": 15, "color": R_},
         {"t": "[1] Robinovitch SN et al. Lancet. 2013;381(9860):47–54.   "
               "[2] Chen LK et al. J Am Med Dir Assoc. 2020;21(3):300–307.   "
-              "[3] Rodosky MW et al. J Orthop Res. 1989;7(2):266–271.   "
-              "[4] Balasubramanian S et al. J NeuroEng Rehabil. 2015;12:112.", "size": 15, "color": R_}],
+              "[3] Yoshioka S et al. BioMed Eng OnLine. 2014;13:27.   "
+              "[4] Balasubramanian S et al. J NeuroEng Rehabil. 2015;12:112.", "size": 15, "color": R_},
+        {"t": "[5] Dubost V et al. Phys Ther. 2005;85(5):404–412.   "
+              "[6] Stevens JA et al. Inj Epidemiol. 2014;1:5.   "
+              "[7] van der Kruk E et al. J Biomech. 2021;122:110411.", "size": 15, "color": R_}],
         size=15, space_after=2)
 
     # 5. 결과 및 기대 효과 --------------------------------------------------------
