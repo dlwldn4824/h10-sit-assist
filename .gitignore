@@ -8,3 +8,4 @@ __pycache__/
 
 # H10 제품 이미지(엔젤로보틱스 자료)는 공개 저장소에 올리지 않는다. make_assets.py로 다시 만든다
 presentation/assets/
+*.zip
