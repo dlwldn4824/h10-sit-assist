@@ -11,6 +11,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import copy
+import sys
+
 import pandas as pd
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -19,6 +22,7 @@ from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Cm, Pt
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
 WINE = RGBColor(0x77, 0x22, 0x35)
 PINK = RGBColor(0xF6, 0xE6, 0xE9)
 GRAY = RGBColor(0x55, 0x55, 0x55)
@@ -26,9 +30,10 @@ WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 BLACK = RGBColor(0, 0, 0)
 KEEP_IDS = {2, 3, 7, 10}          # 상단 제목줄, 로고 묶음, 제목 표, 테두리
 
-TITLE = "안전한 착석을 위한 H10 적응형 하강 제동·자세 보조"
-TEAM = "팀명 / ○○○"
+TITLE = ("근감소증 위험 고령자의 낮은 의자 착석을 위한", "H10 적응형 하강 제동·자세 보조 알고리즘")
+TEAM = "팀명 / KWAI"
 MEMBERS = "팀원 / 이지우, 이지석, 박수민"
+FAST_REP = 5                      # 실측에서 빠르게 앉은 시행 (make_figures.py --highlight와 같게)
 
 
 # ---------------------------------------------------------------- 도형 도우미
@@ -151,9 +156,23 @@ def result_rows(metrics_csv: Path) -> list[list[str]]:
     return rows
 
 
+def real_stats(real_dir: Path) -> dict:
+    """실측 착석 기록에서 포스터에 쓸 숫자를 뽑는다."""
+    from evaluate import calib_loo, load_participant, trial_metrics
+    p = load_participant(real_dir)
+    m = pd.DataFrame([trial_metrics(df) for df in p["calib"]])
+    loo = calib_loo(p["calib"])
+    log = pd.read_csv(real_dir / "extraction_log.csv")
+    return {"n_found": len(log), "n_used": len(p["calib"]), "dur": m.descent_time.mean(),
+            "peak": m.peak_vel.mean(), "lean": m.peak_lean.mean(),
+            "quiet": int((~loo.triggered).sum()), "flagged": int(loo.triggered.sum()),
+            "fast_dur": m.descent_time.iloc[FAST_REP - 1], "fast_peak": m.peak_vel.iloc[FAST_REP - 1]}
+
+
 # ---------------------------------------------------------------- 포스터
 
-def build(template: Path, out: Path, figs: Path, metrics_csv: Path):
+def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Path):
+    st = real_stats(real_dir)
     prs = Presentation(str(template))
     s = prs.slides[0]
     tree = s.shapes._spTree
@@ -166,7 +185,10 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path):
     # 제목 표: 제목 / (빈 줄) / 교과목명 / 팀명 / 팀원
     tbl = next(sh for sh in s.shapes if sh.shape_id == 7).table
     paras = tbl.cell(0, 0).text_frame.paragraphs
-    set_paragraph(paras[0], TITLE)
+    set_paragraph(paras[0], TITLE[0])
+    paras[1].alignment = paras[0].alignment          # 빈 줄을 제목 둘째 줄로 사용
+    paras[1]._p.append(copy.deepcopy(paras[0].runs[0]._r))
+    paras[1].runs[0].text = TITLE[1]
     set_paragraph(paras[3], TEAM)
     set_paragraph(paras[4], MEMBERS)
 
@@ -174,21 +196,24 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path):
 
     # 1. 주제 선정 배경 --------------------------------------------------------
     section(s, L, 18.8, CW, "1. 주제 선정 배경")
-    text(s, L, 22.2, CW, 1.8, ["앉기는 '힘을 빼는 동작'이 아니다"], size=34, bold=True)
-    text(s, L, 24.1, CW, 7.2, [
-        ["의자에 앉을 때 고관절 신전근은 ", ("편심성 수축", {"bold": True}),
-         "으로 몸이 내려가는 속도를 조절하는 ", ("브레이크", {"bold": True}), " 역할을 한다."],
-        ["수술·장기 비사용 후 일상에 복귀한 사용자는 걷기는 가능하지만, 착석 후반부 제동력이 부족해 ",
-         ("의자에 털썩 주저앉기", {"bold": True, "color": WINE}), " 쉽다. 낮은 의자·반복 착석·피로 상황에서 더 심해진다."]])
-    text(s, L, 31.6, CW, 1.8, ["기존 방법은 측정과 개입을 동시에 하지 못한다"], size=34, bold=True)
-    table(s, L, 33.6, CW, [
+    text(s, L, 22.2, CW, 1.8, ["타깃: 근감소증 위험 고령자"], size=34, bold=True)
+    box(s, L, 24.1, CW, 4.0, [
+        [("AWGS 2019 기준 ", {"bold": True}), "5회 의자 일어서기 ≥ 12초"],
+        ["혼자 걸을 수 있지만 ", ("낮은 의자·소파·좌변기", {"bold": True, "color": WINE}), "에서 털썩 앉음"]],
+        size=26, align=PP_ALIGN.LEFT)
+    text(s, L, 28.4, CW, 5.0, [
+        ["앉을 때 고관절 신전근은 ", ("편심성 수축", {"bold": True}), "으로 하강 속도를 조절하는 ",
+         ("브레이크", {"bold": True}), "다. 노화로 이 힘이 줄면 착석 후반부를 못 버티고, ",
+         ("앉기·일어서기 같은 자세 전환", {"bold": True}), "은 고령자 낙상이 자주 일어나는 순간이다."]], size=26)
+    text(s, L, 33.2, CW, 1.6, ["기존 방법은 측정과 개입을 동시에 하지 못한다"], size=30, bold=True)
+    table(s, L, 35.0, CW, [
         ["방법", "움직임 측정", "즉각 보조", "고관절 직접", "장소 무관"],
         ["높은 의자 · 팔걸이", "X", "O", "X", "X"],
         ["지팡이 · 워커", "X", "O", "X", "O"],
         ["IMU", "O", "X", "X", "O"],
         ["카메라", "O", "X", "X", "X"],
         ["H10 (제안)", "O", "O", "O", "O"]],
-        col_w=[11.6, 7.25, 7.25, 7.25, 7.25], row_h=2.0, size=26, highlight_last=True)
+        col_w=[11.6, 7.25, 7.25, 7.25, 7.25], row_h=1.85, size=24, highlight_last=True)
 
     # 2. 생체역학적 관점에서의 문제정의 ----------------------------------------
     section(s, R, 18.8, CW, "2. 생체역학적 관점에서의 문제정의")
@@ -210,7 +235,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path):
               ("SEATED", RGBColor(0x4A, 0x4A, 0x4A), "토크 0.3 s에 걸쳐 해제 → 일어서면 STANDING")]
     trans = ["양쪽 허벅지 ω > 5°/s, 0.1 s 유지",
              "Δθ > 평소 착석 각도 + 2σ, 아직 착석 전",
-             "의자 압력센서 ON 또는 ω < 3°/s, 0.2 s"]
+             "의자 압력센서 ON 또는 |ω| < 8°/s, 0.15 s"]
     y = 53.6
     for i, (name, col, desc) in enumerate(states):
         box(s, 3.2, y, 11.0, 2.7, [name], fill=col, line=None, size=30, bold=True, color=WHITE)
@@ -221,19 +246,19 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path):
                  anchor=MSO_ANCHOR.MIDDLE)
         y += 4.5
     text(s, 3.2, y - 0.2, 40.0, 1.5, ["※ 앉다가 다시 일어서면(ω < −5°/s) 즉시 STANDING, 토크 0"], size=22, color=GRAY)
-    text(s, L, 72.8, 42.0, 1.9, ["개인 기준 캘리브레이션 (표준 의자 15회)"], size=32, bold=True)
+    text(s, L, 72.8, 42.0, 1.9, [f"개인 기준 캘리브레이션 (실측 착석 {st['n_used']}회)"], size=32, bold=True)
     text(s, L, 74.8, 42.0, 7.8, [
-        ["허벅지 각도를 5° 구간으로 나눠 구간별로 저장"],
+        ["보조 OFF로 평소처럼 앉은 기록을 허벅지 5° 구간으로 나눠 저장"],
         [("• 평균 하강 속도 ω_ref(θ)와 표준편차 σ(θ)", {"bold": True})],
         [("• 평균 상체 숙임 φ_ref(θ) (허리 IMU)", {"bold": True})],
         ["• 평소 착석 각도와 평소 최대 각가속도"],
         ["→ 사람마다 다른 착석 속도·자세를 그대로 기준으로 사용"]], size=26, space_after=4)
 
     text(s, 46.3, 51.0, 41.5, 2.0, ["보조 토크 = 상체 지지 + 적응형 제동"], size=34, bold=True)
-    eq = [("1. 상체 지지", "τ_s = K_s · sin φ   (K_s = 6 Nm)",
+    eq = [("1. 상체 지지", "τ_s = K_s · sin φ   (K_s = 6 Nm, φ: 엔코더 − 허벅지 IMU)",
            "숙인 상체를 버티는 신전근 부담을 덜어 올바른 숙임 자세 유지"),
-          ("2. 적응형 하강 제동", "z = (ω̂ − ω_ref(θ̂)) / σ(θ̂),   τ_b = K·g·max(0, z − 2.5)",
-           "ω̂ = ω + α·0.05 s로 미리 반응 · DEEP / 상체 덜 숙임이면 g = 1.5 · 급가속이면 z ≥ 4"),
+          ("2. 적응형 하강 제동", "z = (ω̂ − ω_ref(θ̂)) / σ(θ̂),   τ_b = K·g·max(0, z − 3.5)",
+           "ω̂ = ω + α·0.05 s로 미리 반응 · DEEP / 상체 덜 숙임이면 g = 1.5 · 급가속이면 z ≥ 5"),
           ("3. 출력 제한", "τ = sat[0, 10 Nm](τ_s + τ_b),   상승 ≤ 60 Nm/s",
            "두 토크 모두 신전 방향이라 서로 상쇄되지 않음 · 일어설 때는 0")]
     y = 53.3
@@ -247,33 +272,38 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path):
         ["\"개인 기준이 이상을 찾고, 상체 지지가 자세를 받치고, 적응형 제동이 속도를 잡는다\""],
         size=32, bold=True)
 
-    # 4. 작동 검증 ---------------------------------------------------------------
-    section(s, 2.4, 86.7, 46.8, "4. 작동 검증 (시뮬레이션)")
-    picture(s, figs / "fig_trial.png", L, 90.0, 30.6)
-    steps = ["① 숙이기 시작\n→ 상체 지지", "② 덜 숙임 감지\n(UPRIGHT)", "③ 기준 초과 가속\n→ 제동 증가",
-             "④ 낮은 의자 감지\n(DEEP)", "⑤ 착석\n→ 토크 해제"]
-    y = 90.4
-    for i, st in enumerate(steps):
-        box(s, 33.8, y, 15.0, 3.0, st.split("\n"), size=22, bold=i in (1, 3))
+    # 4. 작동 검증 (실측) ------------------------------------------------------------
+    section(s, 2.4, 86.7, 46.8, "4. 작동 검증 (실측 H10 데이터)")
+    picture(s, figs / "fig_trial_real.png", L, 90.0, 30.6)
+    steps = [("① SUIT 로그 디코딩", "1 kHz → 100 Hz"),
+             ("② 앉기 자동 검출", f"{st['n_found']}회 중 보조 OFF {st['n_used']}회"),
+             ("③ 개인 기준 생성", f"평균 {st['dur']:.1f} s · 최대 {st['peak']:.0f}°/s"),
+             ("④ 정상 착석 재생", f"{st['quiet']}/{st['n_used']}회 제동 없음"),
+             ("⑤ 빠른 착석 감지", f"{st['fast_dur']:.1f} s · {st['fast_peak']:.0f}°/s → 제동")]
+    y = 90.2
+    for i, (head, sub) in enumerate(steps):
+        box(s, 33.8, y, 15.0, 3.0, [[(head, {"bold": True})], [sub]], size=21,
+            fill=PINK if i < 4 else RGBColor(0xF4, 0xC7, 0xCF))
         if i < 4:
             arrow(s, 40.8, y + 3.05, 1.0, 0.9)
         y += 4.0
-    text(s, L, 112.4, 46.0, 1.4, ["피로 + Adaptive H10 조건의 한 시행 (낮은 의자). 가짜 데이터: 12명 × 3조건 × 5회"],
+    text(s, L, 112.2, 46.0, 1.6, ["실측 rep05(빠르게 앉은 시행)를 나머지 9회로 만든 기준에 넣어 다시 재생 (토크는 계산값)"],
          size=20, color=GRAY)
 
     # 5. 결과 및 기대 효과 --------------------------------------------------------
     section(s, 51.2, 86.7, 36.2, "5. 결과 및 기대 효과")
-    table(s, 51.2, 90.0, 36.2, result_rows(metrics_csv), col_w=[13.0, 5.4, 5.8, 5.8, 6.2], row_h=1.3, size=22)
-    text(s, 51.2, 99.3, 36.2, 5.0, [
+    text(s, 51.2, 89.8, 36.2, 1.3, ["실측 기준 기반 시뮬레이션: 12명 × 3조건 × 5회, 낮은 의자"], size=20, color=GRAY)
+    table(s, 51.2, 91.1, 36.2, result_rows(metrics_csv), col_w=[13.0, 5.4, 5.8, 5.8, 6.2], row_h=1.2, size=21)
+    text(s, 51.2, 99.7, 36.2, 4.6, [
         [("① 낙상 위험 동작 완화: ", {"bold": True}), "급하강 · 뒤로 주저앉는 자세 감소"],
         [("② 의자 높이와 무관: ", {"bold": True}), "착용형 + 낮은 의자 자동 감지"],
-        [("③ 개인 맞춤: ", {"bold": True}), "15회 착석만으로 기준 생성"]], size=24, space_after=2)
+        [("③ 개인 맞춤: ", {"bold": True}), "평소 착석 10~15회만으로 기준 생성"]], size=24, space_after=1)
 
     # 6. 한계 및 개선 방안 ---------------------------------------------------------
     section(s, 51.2, 104.4, 36.2, "6. 한계 및 개선 방안")
     text(s, 51.2, 107.5, 36.2, 7.0, [
-        [("# 시뮬레이션 단계", {"bold": True})],
-        {"t": "건강한 성인 피로 실험(Normal / 피로+OFF / 피로+H10)으로 검증", "size": 22, "color": GRAY},
+        [("# 실측은 1명 · 정상 착석 10회", {"bold": True})],
+        {"t": "피로 · 낮은 의자 효과는 시뮬레이션 → 실제 3조건 실험과 다수 피험자로 검증", "size": 22, "color": GRAY},
         [("# 낙상 예방은 아직 미검증", {"bold": True})],
         {"t": "착석 속도 · jerk · 상체 숙임 지표로 주장 범위 한정", "size": 22, "color": GRAY},
         [("# 상태 피드백 부재", {"bold": True})],
@@ -290,9 +320,10 @@ def main():
     ap.add_argument("--template", required=True)
     ap.add_argument("--out", default=str(HERE / "착석보조_포스터.pptx"))
     ap.add_argument("--figs", default=str(HERE / "figs"))
-    ap.add_argument("--metrics", default=str(HERE.parent / "results" / "metrics.csv"))
+    ap.add_argument("--metrics", default=str(HERE.parent / "results" / "sim" / "metrics.csv"))
+    ap.add_argument("--real", default=str(HERE.parent / "data" / "real" / "S01"))
     args = ap.parse_args()
-    build(Path(args.template), Path(args.out), Path(args.figs), Path(args.metrics))
+    build(Path(args.template), Path(args.out), Path(args.figs), Path(args.metrics), Path(args.real))
 
 
 if __name__ == "__main__":

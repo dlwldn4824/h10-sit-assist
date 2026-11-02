@@ -1,7 +1,9 @@
-"""포스터에 들어갈 그림을 만든다. 가짜 데이터(data/)와 결과(results/)가 먼저 있어야 한다.
+"""포스터에 들어갈 그림을 만든다. 실측 데이터와 실측 기반 시뮬레이션 결과가 먼저 있어야 한다.
 
-    python simulate_data.py --out data && python evaluate.py data --out results
-    python poster/make_figures.py --data data --results results --out poster/figs
+    python preprocess_h10.py <SUIT 로그들> --out data/real/S01
+    python simulate_data.py --out data/sim --from-profile data/real/S01/profile.json
+    python evaluate.py data/sim --out results/sim
+    python poster/make_figures.py
 """
 from __future__ import annotations
 
@@ -82,15 +84,18 @@ def fig_posture(out: Path):
 
 # ---------------------------------------------------------------- 2. 개인 기준값
 
-def fig_profile(p: dict, prof: Profile, out: Path, cfg: Config = Config()):
+def fig_profile(p: dict, prof: Profile, out: Path, cfg: Config = Config(), highlight: int | None = None):
     fig, ax = plt.subplots(1, 2, figsize=(14, 5.4))
     c = np.array(prof.centers)
-    for df in p["calib"]:
+    for k, df in enumerate(p["calib"]):
         s = run_trial(df, prof, cfg)
-        m = s["phase"] == Phase.DESCENT
+        m = s["phase"].isin([Phase.DESCENT, Phase.DEEP])
         d = s.loc[m, ["dtheta_l", "dtheta_r"]].mean(axis=1)
-        ax[0].plot(d, s.loc[m, ["omega_l", "omega_r"]].mean(axis=1), c=GRAY, lw=0.8, alpha=0.6)
-        ax[1].plot(d, s.loc[m, "lean"], c=GRAY, lw=0.8, alpha=0.6)
+        hl = k == highlight
+        style = dict(c=RED if hl else GRAY, lw=2.2 if hl else 1.0, alpha=1 if hl else 0.7, zorder=3 if hl else 1,
+                     label=f"빠르게 앉은 시행 (rep{k + 1:02d})" if hl else None)
+        ax[0].plot(d, s.loc[m, ["omega_l", "omega_r"]].mean(axis=1), **style)
+        ax[1].plot(d, s.loc[m, "lean"], **{**style, "label": None})
     mu, sd = (np.array(prof.mu_l) + prof.mu_r) / 2, (np.array(prof.sd_l) + prof.sd_r) / 2
     ax[0].plot(c, mu, c=WINE, lw=3, label="개인 평균 속도 ω_ref(θ)")
     ax[0].fill_between(c, mu - cfg.z_weak * sd, mu + cfg.z_weak * sd, color=WINE, alpha=0.15,
@@ -110,8 +115,8 @@ def fig_profile(p: dict, prof: Profile, out: Path, cfg: Config = Config()):
     ax[0].text(prof.contact_mean - 0.5, 5, "평소 착석", ha="right", fontsize=16)
     ax[0].set_ylabel("허벅지 굴곡 속도 (deg/s)")
     ax[1].set_ylabel("상체 숙임 (deg)")
-    ax[1].set_ylim(-3, 50)
-    ax[0].set_title("① 하강 속도 기준 (표준 의자 15회)")
+    ax[1].set_ylim(min(-3, float(lo.min()) - 3), max(lm) + 20)
+    ax[0].set_title(f"① 하강 속도 기준 (실측 착석 {prof.n_trials}회)")
     ax[1].set_title("② 상체 숙임 기준 (허리 IMU)")
     fig.tight_layout()
     fig.savefig(out / "fig_profile.png", dpi=200, facecolor="white")
@@ -148,11 +153,13 @@ def fig_compare(p: dict, prof: Profile, out: Path, cfg: Config = Config()):
 
 # ---------------------------------------------------------------- 4. 한 시행의 실시간 동작
 
-def fig_trial(df: pd.DataFrame, prof: Profile, out: Path, cfg: Config = Config()):
+def fig_trial(df: pd.DataFrame, prof: Profile, out: Path, cfg: Config = Config(),
+              name: str = "fig_trial.png", window: tuple[float, float] = (0.6, 4.6)):
     log = run_trial(df, prof, cfg, shadow=True)
-    log[["tau_cmd_l", "tau_cmd_r"]] = df[["tau_cmd_l", "tau_cmd_r"]].to_numpy()
+    if {"tau_cmd_l", "tau_cmd_r"} <= set(df.columns):     # 실제로 보조한 시행이면 기록된 토크를 그린다
+        log[["tau_cmd_l", "tau_cmd_r"]] = df[["tau_cmd_l", "tau_cmd_r"]].to_numpy()
     t = log["time_s"]
-    keep = (t > 0.6) & (t < 4.6)
+    keep = (t > window[0]) & (t < window[1])
     log, t = log[keep], t[keep]
     fig, ax = plt.subplots(3, 1, figsize=(12, 8.6), sharex=True)
     ax[0].plot(t, log["omega_l"], c=BLUE, lw=2, label="허벅지 굴곡 속도 ω")
@@ -182,29 +189,38 @@ def fig_trial(df: pd.DataFrame, prof: Profile, out: Path, cfg: Config = Config()
             ax[0].text((t0 + t1) / 2, ax[0].get_ylim()[1] * 0.93, names[ph], ha="center", fontsize=16,
                        fontweight="bold")
     for a in ax:
-        a.legend(loc="upper left", frameon=False)
+        a.legend(loc="upper right", frameon=False, fontsize=14)
     fig.tight_layout()
-    fig.savefig(out / "fig_trial.png", dpi=200, facecolor="white")
+    fig.savefig(out / name, dpi=200, facecolor="white")
     plt.close(fig)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default="data")
-    ap.add_argument("--results", default="results")
+    ap.add_argument("--real", default="data/real/S01", help="preprocess_h10.py로 만든 실측 폴더")
+    ap.add_argument("--sim", default="data/sim/P01", help="실측 기반 시뮬레이션 참가자 폴더")
     ap.add_argument("--out", default="poster/figs")
-    ap.add_argument("--pid", default="P01")
+    ap.add_argument("--highlight", type=int, default=5, help="실측에서 강조할 시행 번호")
     args = ap.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    p = load_participant(Path(args.data) / args.pid)
-    prof = Profile.from_trials(p["calib"])
     fig_posture(out)
-    fig_profile(p, prof, out)
-    fig_compare(p, prof, out)
-    tr = next(t for t in p["trials"] if t["cond"] == 3 and t["rep"] == 1)
-    fig_trial(tr["df"], prof, out)
-    print(f"{out}/ 에 그림 4개를 저장했습니다.")
+
+    real = load_participant(Path(args.real))
+    prof = Profile.from_trials(real["calib"])
+    fig_profile(real, prof, out, highlight=args.highlight - 1)
+    # 강조할 시행은 그 시행을 뺀 나머지로 만든 기준에 넣는다 (자기 자신이 기준에 섞이지 않게)
+    k = args.highlight - 1
+    df = real["calib"][k]
+    loo = Profile.from_trials(real["calib"][:k] + real["calib"][k + 1:])
+    fig_trial(df, loo, out, name="fig_trial_real.png", window=(0.9, float(df["time_s"].iloc[-1])))
+
+    sim = load_participant(Path(args.sim))
+    sim_prof = Profile.from_trials(sim["calib"])
+    fig_compare(sim, sim_prof, out)
+    tr = next(t for t in sim["trials"] if t["cond"] == 3 and t["rep"] == 1)
+    fig_trial(tr["df"], sim_prof, out)
+    print(f"{out}/ 에 그림을 저장했습니다.")
 
 
 if __name__ == "__main__":

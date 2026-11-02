@@ -17,6 +17,7 @@
 OFF 조건에서도 컨트롤러를 그림자 모드로 돌려 tau_cmd(계산만 한 토크)를 같이 기록한다.
 
     python simulate_data.py --out data --participants 12
+    python simulate_data.py --out data/sim --from-profile data/real/S01/profile.json   # 실측 기반
 """
 from __future__ import annotations
 
@@ -42,9 +43,18 @@ def _smoothstep(x):
     return x * x * (3 - 2 * x)
 
 
-def make_person(rng, pid: str) -> dict:
+def base_from_profile(path: Path) -> dict:
+    """실측 개인 기준(profile.json)에서 시뮬레이션 사람의 평소 착석 특성을 가져온다."""
+    p = Profile.load(path)
+    mu = (np.array(p.mu_l) + np.array(p.mu_r)) / 2
+    return {"w_peak": float(mu.max()), "contact_std": p.contact_mean,
+            "lean_peak": float(max(p.lean_mu)) if p.lean_mu else 35.0}
+
+
+def make_person(rng, pid: str, base: dict | None = None) -> dict:
+    """base가 있으면 실측 평소 착석 특성 ±10% 안에서 사람을 만든다."""
     knee = rng.uniform(44, 52)
-    return {"id": pid,
+    person = {"id": pid,
             "knee_height_cm": round(knee, 1),
             "chair_standard_cm": round(knee, 1),           # 무릎 높이 100%
             "chair_low_cm": round(knee * 0.78, 1),         # 무릎 높이 약 78%
@@ -58,6 +68,11 @@ def make_person(rng, pid: str) -> dict:
             "deficit": rng.uniform(20, 30),                # 피로 시 착석 후반부 부족 토크 (Nm)
             "deficit_deep": rng.uniform(10, 15),           # 낮은 의자 깊은 구간 부족 토크 (Nm)
             "deficit_upright": rng.uniform(10, 15)}        # 상체를 못 숙였을 때 추가 부족 토크 (Nm)
+    if base:
+        person["w_peak"] = base["w_peak"] * rng.uniform(0.9, 1.1)
+        person["contact_std"] = base["contact_std"] + rng.uniform(-3, 3)
+        person["lean_peak"] = base["lean_peak"] * rng.uniform(0.9, 1.1)
+    return person
 
 
 def _lean_intent(person: dict, p: float) -> float:
@@ -123,12 +138,14 @@ def simulate_sit(rng, person: dict, chair: str, fatigue: float,
     return df.round({c: 3 for c in LOG_COLS if c in df})
 
 
-def make_participant(rng, out: Path, pid: str, reps: int, cfg: Config = Config()) -> None:
-    person = make_person(rng, pid)
+def make_participant(rng, out: Path, pid: str, reps: int, cfg: Config = Config(),
+                     base: dict | None = None) -> None:
+    person = make_person(rng, pid, base)
     pdir = out / pid
     pdir.mkdir(parents=True, exist_ok=True)
     meta = {k: person[k] for k in ("id", "knee_height_cm", "chair_standard_cm", "chair_low_cm")}
     meta["simulated"] = True
+    meta["based_on_real_profile"] = base is not None
     (pdir / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False))
 
     calib = [simulate_sit(rng, person, "standard", 0.0) for _ in range(CALIB_REPS)]
@@ -150,11 +167,15 @@ def main():
     ap.add_argument("--participants", type=int, default=12)
     ap.add_argument("--reps", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--from-profile", help="실측 profile.json. 주면 그 사람의 평소 착석 특성에서 출발")
     args = ap.parse_args()
     rng = np.random.default_rng(args.seed)
+    base = base_from_profile(Path(args.from_profile)) if args.from_profile else None
+    if base:
+        print("실측 기준에서 출발:", {k: round(v, 1) for k, v in base.items()})
     out = Path(args.out)
     for k in range(1, args.participants + 1):
-        make_participant(rng, out, f"P{k:02d}", args.reps)
+        make_participant(rng, out, f"P{k:02d}", args.reps, base=base)
         print(f"P{k:02d} 완료")
     print(f"{out}/ 에 저장했습니다.")
 

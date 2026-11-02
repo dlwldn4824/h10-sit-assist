@@ -53,8 +53,8 @@ class Config:
     # 착석 시작 / 착석 판단
     onset_vel: float = 5.0          # deg/s, 양쪽이 이보다 빠르게 굽히면 시작
     onset_hold_s: float = 0.1
-    seat_vel: float = 3.0           # 압력센서가 없을 때: 이보다 느려지면 앉은 것
-    seat_hold_s: float = 0.2
+    seat_vel: float = 8.0           # 압력센서가 없을 때: |ω|가 이보다 작으면 앉은 것 (앉은 뒤에도 몸이 조금 흔들림)
+    seat_hold_s: float = 0.15
     min_seat_depth: float = 20.0    # deg, 이보다 얕게 멈추면 앉은 것으로 보지 않음
     stand_depth: float = 10.0       # deg, 앉은 뒤 이만큼 펴지면 일어선 것
     # 개인 기준값
@@ -63,8 +63,8 @@ class Config:
     min_sd_ratio: float = 0.1
     min_lean_sd: float = 3.0        # deg
     # 하강 제동
-    z_weak: float = 2.5             # 이 점수부터 약한 제동 (정상 착석의 약 90%는 이보다 낮음)
-    z_strong: float = 4.0           # 이 점수부터 강한 제동
+    z_weak: float = 3.5             # 이 점수부터 약한 제동 (실측 정상 착석 10회 중 8회는 3.2 이하)
+    z_strong: float = 5.0           # 이 점수부터 강한 제동
     gain: float = 2.5               # Nm / 점수
     brake_from_ratio: float = 0.25  # 평소 착석 각도의 25%를 지나서부터 제동 (초반은 개인차·잡음이 큼)
     deep_gain: float = 1.5          # DEEP 구간에서 gain에 곱하는 값
@@ -167,7 +167,7 @@ class Segmenter:
             if not np.isnan(seat):                        # 의자 압력센서가 있으면 그것을 믿는다
                 if seat > 0.5:
                     self.phase, self.contact_t = Phase.SEATED, t
-            elif wm < c.seat_vel and dm > c.min_seat_depth:
+            elif abs(wm) < c.seat_vel and dm > c.min_seat_depth:
                 self._n_seat += 1
                 if self._n_seat == 1:
                     self._cand_t = t
@@ -176,8 +176,11 @@ class Segmenter:
             else:
                 self._n_seat = 0
             self._n_rise = self._n_rise + 1 if wm < -c.onset_vel else 0
-            if self._n_rise >= hold_on:                   # 앉다가 다시 일어섬 → 취소
-                self.phase = Phase.STANDING
+            if self._n_rise >= hold_on:                   # 펴지기 시작함
+                if dm > c.min_seat_depth:                 # 깊이 내려간 뒤면 착석을 놓친 것 → 앉은 것으로 처리
+                    self.phase, self.contact_t = Phase.SEATED, t
+                else:                                     # 얕을 때면 앉다가 다시 일어섬 → 취소
+                    self.phase = Phase.STANDING
 
         elif self.phase == Phase.SEATED and dm < c.stand_depth:
             self.phase = Phase.STANDING
@@ -354,13 +357,14 @@ class SitAssistController:
         if self.seg.phase == Phase.DESCENT and d.mean() > self.deep_thr:
             self.seg.phase = Phase.DEEP
         phase = self.seg.phase
-        moving = phase in (Phase.DESCENT, Phase.DEEP) and w.mean() > 0
-        late = d.mean() > c.brake_from_ratio * p.contact_mean
+        dm, wm = d.mean(), w.mean()
+        moving = phase in (Phase.DESCENT, Phase.DEEP) and wm > 0
+        late = dm > c.brake_from_ratio * p.contact_mean
 
         # 자세: 평소보다 상체를 덜 숙였는가 (뒤로 주저앉는 패턴)
         posture, lean_ref = Posture.OK, np.nan
         if has_trunk and moving and late:
-            lean_ref, lean_sd = p.lean_ref(d.mean())
+            lean_ref, lean_sd = p.lean_ref(dm)
             if lean < lean_ref - max(c.upright_margin_sd * lean_sd, c.upright_min_margin):
                 posture = Posture.UPRIGHT
 
@@ -377,7 +381,8 @@ class SitAssistController:
                     mu_end, sd = p.end_ref(i)
                     ref[i], g = c.deep_target_ratio * mu_end, c.gain * c.deep_gain
                 else:   # 0.05초 뒤 도착할 각도의 기준과 비교 (평소의 정상 가속은 기준에 이미 들어 있음)
-                    (ref[i], sd), g = p.ref(i, d[i] + w[i] * c.lookahead_s), c.gain
+                    # 기준은 좌우 평균 Δθ 구간으로 만들었으므로 조회도 평균 Δθ로 한다 (좌우 각도 차이에 강함)
+                    (ref[i], sd), g = p.ref(i, dm + wm * c.lookahead_s), c.gain
                 if posture == Posture.UPRIGHT:
                     g *= c.upright_gain
                 w_pred = w[i] + a[i] * c.lookahead_s
