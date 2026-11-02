@@ -228,8 +228,9 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
         ["고관절 신전근¹은 편심성 수축²으로 ", ("① 숙인 상체를 버티고 ② 하강 속도를 제동", {"bold": True}),
          "한다. 고령자는 상체를 약 10° 덜 숙이고[5], 근력이 약하면 빠르게 내려가며 ",
          ("무게중심이 발 뒤로 빠진다", {"bold": True, "color": WINE}), " (고령자 낙상의 17.6%가 뒤로 주저앉음[6])."]])
-    box(s, R, 43.0, CW, 3.3, [["H10 고관절 ", ("신전 토크", {"bold": True}), " 하나로"],
-                              [("상체 지지 + 하강 제동", {"bold": True, "color": WINE}), "을 동시에 보조"]], size=30)
+    box(s, R, 43.0, CW, 3.3, [["H10 ", ("신전 토크", {"bold": True}), " 하나로 ",
+                               ("상체 지지 + 하강 제동", {"bold": True, "color": WINE}), "을 동시에 보조"],
+                              ["선행 연구: 하지 착석 보조 시 팔 지지 힘 약 70% 감소[8]"]], size=28)
 
     # 3. 알고리즘 설계 ---------------------------------------------------------
     section(s, 2.5, 47.8, 84.9, "3. 알고리즘 설계")
@@ -308,7 +309,8 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
               "[4] Balasubramanian S et al. J NeuroEng Rehabil. 2015;12:112.", "size": 15, "color": R_},
         {"t": "[5] Dubost V et al. Phys Ther. 2005;85(5):404–412.   "
               "[6] Stevens JA et al. Inj Epidemiol. 2014;1:5.   "
-              "[7] van der Kruk E et al. J Biomech. 2021;122:110411.", "size": 15, "color": R_}],
+              "[7] van der Kruk E et al. J Biomech. 2021;122:110411.   "
+              "[8] Chang SR et al. J NeuroEng Rehabil. 2016;13:27.", "size": 15, "color": R_}],
         size=15, space_after=2)
 
     # 5. 결과 및 기대 효과 --------------------------------------------------------

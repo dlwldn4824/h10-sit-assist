@@ -22,6 +22,7 @@
 | 마지막 순간이 가장 빠릅니다 | 제동이 풀리면 착석 직전에 속도가 붙어 의자에 세게 부딪히거나 뒤로 넘어지기 쉽습니다. |
 | 생활 곳곳에 있습니다 | 소파, 좌변기, 좌식 의자처럼 매일 앉는 자리가 낮습니다. |
 | 손으로 짚으면 되지 않나요? | 팔로 버티는 것은 하지 기능 저하를 가리는 보상 전략입니다[^vanderkruk]. 지팡이·짐을 든 상황이나 팔걸이 없는 소파·좌변기에서는 쓸 수 없습니다. |
+| 하지 보조로 팔 부담이 줄까요? | 선행 연구에서 하지의 착석 제어를 보조하자 팔 지지 힘이 약 70% 줄고 의자 충격이 약 절반으로 줄었습니다[^chang]. 척수손상 2명, 무릎 장치 결과라서 H10 효과로 바로 옮길 수는 없습니다. H10 OFF/ON 비교로 같은 방향의 변화가 나타나는지 확인합니다. |
 
 그래서 알고리즘에는 **DEEP 단계(평소 착석 각도 + 2SD를 넘어 계속 내려감 → 낮은 의자로 판단, 제동 1.5배)** 가 있습니다.
 
@@ -203,6 +204,7 @@ python compare_h10_runs.py --off <OFF 로그들> --on <ON 로그들> --out resul
 [^dubost]: Dubost V, Beauchet O, Manckoundia P, et al. Decreased trunk angular displacement during sitting down: an early feature of aging. *Phys Ther*. 2005;85(5):404–412.
 [^stevens]: Stevens JA, Mahoney JE, Ehrenreich H. Circumstances and outcomes of falls among high risk community-dwelling older adults. *Inj Epidemiol*. 2014;1:5.
 [^vanderkruk]: van der Kruk E, Silverman AK, Reilly P, Bull AMJ. Compensation due to age-related decline in sit-to-stand and sit-to-walk. *J Biomech*. 2021;122:110411.
+[^chang]: Chang SR, Nandor MJ, Kobetic R, Foglyano KM, Quinn RD, Triolo RJ. Improving stand-to-sit maneuver for individuals with spinal cord injury. *J NeuroEng Rehabil*. 2016;13:27.
 [^jeon]: Jeon et al. *Front Hum Neurosci*. 2024. 앉기는 일어서기의 역동작이 아니라 하강 중 균형 제어가 필요한 동작이며, 부드럽게 앉을수록 고관절 근육의 기여가 커집니다 (젊은 성인 12명).
 [^kim2025]: Kim et al. *Medicina*. 2025;61(6):1065 (Kim & Won 2020 재인용).
 [^survey2020]: 보건복지부. 2020 노인실태조사 (언론 보도 재인용).
