@@ -1,0 +1,44 @@
+/* export_params.py가 만든 파일 — 직접 고치지 말 것 */
+/* 기준: profile_45ref.json, 착석 10회 */
+#ifndef SIT_ASSIST_PARAMS_H
+#define SIT_ASSIST_PARAMS_H
+
+#define SA_FS 100.0
+#define SA_ONSET_VEL 5.0
+#define SA_ONSET_HOLD 10
+#define SA_SEAT_VEL 8.0
+#define SA_SEAT_HOLD 15
+#define SA_MIN_SEAT_DEPTH 20.0
+#define SA_STAND_DEPTH 10.0
+#define SA_Z_WEAK 3.5
+#define SA_Z_STRONG 5.0
+#define SA_GAIN 2.5
+#define SA_BRAKE_FROM_RATIO 0.25
+#define SA_DEEP_GAIN 1.5
+#define SA_DEEP_TARGET_RATIO 1.0
+#define SA_LOOKAHEAD 0.05
+#define SA_SUPPORT_GAIN 6.0
+#define SA_UPRIGHT_MARGIN_SD 2.0
+#define SA_UPRIGHT_MIN_MARGIN 6.0
+#define SA_UPRIGHT_GAIN 1.5
+#define SA_TAU_MAX 10.0
+#define SA_RISE_RATE 60.0
+#define SA_RELEASE_S 0.3
+
+#define SA_CONTACT_MEAN 62.720000   /* 평소 착석 각도 (deg) */
+#define SA_DEEP_THRESHOLD 66.916000 /* 이 각도를 넘으면 낮은 의자(DEEP) */
+#define SA_ALPHA_MAX 650.878000
+#define SA_NBINS 16
+#define SA_HAS_LEAN 1
+static const sa_real SA_CENTERS[] = {2.5, 7.5, 12.5, 17.5, 22.5, 27.5, 32.5, 37.5, 42.5, 47.5, 52.5, 57.5, 62.5, 67.5, 72.5, 77.5};
+static const sa_real SA_MU_L[] = {30.417, 51.002, 70.011, 73.81, 66.176, 57.821, 58.142, 57.088, 58.635, 58.905, 58.55, 58.795, 49.363, 29.003, 12.835, 12.835};
+static const sa_real SA_SD_L[] = {11.914, 10.417, 8.776, 14.253, 14.082, 9.727, 11.68, 12.033, 10.753, 13.341, 10.756, 9.891, 14.315, 16.796, 5.812, 5.812};
+static const sa_real SA_MU_R[] = {23.7, 43.198, 52.172, 54.187, 55.982, 49.61, 44.719, 40.757, 50.573, 59.89, 64.008, 62.795, 54.329, 28.965, 14.757, 14.757};
+static const sa_real SA_SD_R[] = {7.714, 15.053, 14.147, 12.531, 14.699, 11.261, 12.411, 7.044, 9.639, 15.6, 14.859, 15.526, 14.869, 19.742, 5.752, 5.752};
+static const sa_real SA_LEAN_MU[] = {3.896, 8.493, 12.855, 16.354, 19.522, 22.277, 24.014, 24.326, 22.946, 19.976, 15.918, 11.19, 5.837, -0.8, -10.53, -10.53};
+static const sa_real SA_LEAN_SD[] = {3, 4.363, 6.247, 8.012, 9.2, 10.147, 11.285, 12.312, 12.918, 13.078, 13.138, 13.052, 12.536, 11.157, 9.91, 9.91};
+static const sa_real SA_LPF_ANGLE[] = {0.027859766117136, 0.0557195322342721, 0.027859766117136, -1.47548044359265, 0.58691950806119};
+static const sa_real SA_LPF_ACCEL[] = {0.00782020803349719, 0.0156404160669944, 0.00782020803349719, -1.73472576880927, 0.766006600943264};
+static const sa_real SA_LPF_TRUNK[] = {0.0133592000278565, 0.026718400055713, 0.0133592000278565, -1.64745998107698, 0.700896781188403};
+
+#endif

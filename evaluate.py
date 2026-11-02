@@ -21,7 +21,7 @@ from scipy.signal import butter, sosfiltfilt
 
 from sit_assist import Config, Phase, Profile, run_trial
 
-CONDITION_NAMES = {1: "45 cm", 2: "35 cm + H10 OFF", 3: "35 cm + H10"}
+CONDITION_NAMES = {1: "45 cm", 2: "30 cm + H10 OFF", 3: "30 cm + H10"}
 TRIAL_RE = re.compile(r"cond(\d+)_rep(\d+)\.csv")
 TRIGGER_NM = 1.0        # 계산된 제동 토크가 이보다 크면 '제동이 켜졌다'
 METRICS = ["peak_vel", "peak_acc", "rms_jerk", "ldlj", "contact_vel", "descent_time", "peak_lean"]
@@ -256,7 +256,7 @@ def main():
         a = per[per.cond == 2].set_index("participant")[METRICS]
         b = per[per.cond == 3].set_index("participant")[METRICS]
         change = (b - a) / a.abs() * 100
-        lines += ["", "35 cm + H10 vs 35 cm + H10 OFF (참가자별 변화율 평균, 좋아진 사람 수)"]
+        lines += ["", "30 cm + H10 vs 30 cm + H10 OFF (참가자별 변화율 평균, 좋아진 사람 수)"]
         for k in METRICS:
             sign = BETTER[k]
             note = "" if sign == 0 else f", 좋아진 사람 {int((np.sign(b[k] - a[k]) == sign).sum())}/{len(a)}"

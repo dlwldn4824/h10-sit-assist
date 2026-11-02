@@ -1,13 +1,14 @@
 """포스터에 들어갈 그림을 만든다. 실측 데이터와 실측 기반 시뮬레이션 결과가 먼저 있어야 한다.
 
-    python preprocess_h10.py <SUIT 로그들> --out data/real/S01
-    python simulate_data.py --out data/sim --from-profile data/real/S01/profile.json
+    python preprocess_h10.py <SUIT-22, 33> --out data/real/chair30
+    python simulate_data.py --out data/sim --from-profile data/real/chair30/profile.json --chair-stats results/real/chair_stats.json
     python evaluate.py data/sim --out results/sim
     python poster/make_figures.py
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -16,7 +17,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+HERE_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(HERE_ROOT))
 from evaluate import descent_window, load_participant, offline_kinematics  # noqa: E402
 from sit_assist import Config, Phase, Profile, run_trial  # noqa: E402
 
@@ -37,7 +39,7 @@ SLIDES_PALETTE = {"WINE": "#3f9d63", "GRAY": "#b5b5b8", "GREEN": "#3f9d63", "RED
 def use_palette(name: str):
     if name == "slides":
         globals().update(SLIDES_PALETTE)
-COND_LABEL = {1: "45 cm", 2: "35 cm + H10 OFF", 3: "35 cm + H10"}
+COND_LABEL = {1: "45 cm", 2: "30 cm + H10 OFF", 3: "30 cm + H10"}
 
 
 # ---------------------------------------------------------------- 1. 올바른 / 잘못된 착석 자세
@@ -362,11 +364,46 @@ def fig_compare(p: dict, prof: Profile, out: Path, cfg: Config = Config(), tall:
         a.set_xlabel("허벅지 굴곡 Δθ (deg)")
     ax[0].set_ylabel("허벅지 굴곡 속도 (deg/s)")
     ax[1].set_ylabel("상체 숙임 (deg)")
-    ax[0].set_title("하강 속도: 35 cm 후반부 급가속이 줄어듦")
+    ax[0].set_title("하강 속도: 30 cm 후반부 급가속이 줄어듦")
     ax[1].set_title("상체 숙임: 조건 사이 차이는 작음")
     fig.legend(*ax[0].get_legend_handles_labels(), loc="lower center", ncol=3, frameon=False)
     fig.tight_layout(rect=(0, 0.06 if tall else 0.1, 1, 1))
     fig.savefig(out / ("fig_compare_tall.png" if tall else "fig_compare.png"), dpi=200, facecolor="white")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------- 3-2. 실측 45 cm vs 30 cm
+
+def fig_chairs(d45: Path, d30: Path, stats: dict, out: Path, cfg: Config = Config()):
+    """실측 의자 높이 비교: 위 ω–Δθ 곡선, 아래 착석 각도 점그림 (DEEP 기준선)."""
+    fig, ax = plt.subplots(2, 1, figsize=(8.6, 8.4), gridspec_kw={"height_ratios": [1.5, 1]})
+    cols = {"45 cm": "#1a1a1c" if WINE != "#772235" else "#555555", "30 cm": WINE}
+    for chair, d in (("45 cm", d45), ("30 cm", d30)):
+        angles = []
+        for k, df in enumerate(load_participant(d)["calib"]):
+            log = run_trial(df, Profile.load(Path(stats["_profile"])), cfg, shadow=True)
+            m = log["phase"].isin([Phase.DESCENT, Phase.DEEP])
+            dm = log.loc[m, ["dtheta_l", "dtheta_r"]].mean(axis=1)
+            ax[0].plot(dm, log.loc[m, ["omega_l", "omega_r"]].mean(axis=1), c=cols[chair], lw=1.6, alpha=0.75,
+                       label=chair if k == 0 else None)
+            seated = log["phase"] == Phase.SEATED
+            angles.append(float(log.loc[seated, ["dtheta_l", "dtheta_r"]].mean(axis=1).iloc[0]) if seated.any() else np.nan)
+        y = 0 if chair == "45 cm" else 1
+        ax[1].scatter(angles, np.full(len(angles), y) + np.random.default_rng(0).uniform(-0.12, 0.12, len(angles)),
+                      s=90, c=cols[chair], alpha=0.85, zorder=3)
+    for a in ax:
+        a.axvline(stats["deep_thr"], ls=":", c="#1a1a1c", lw=1.5)
+    ax[0].text(stats["deep_thr"] + 0.6, ax[0].get_ylim()[1] * 0.9, "DEEP 기준", fontsize=15)
+    ax[0].set_xlabel("허벅지 굴곡 Δθ (deg)")
+    ax[0].set_ylabel("허벅지 굴곡 속도 (deg/s)")
+    ax[0].set_title("실측 하강 곡선: 30 cm는 더 깊이 내려감")
+    ax[0].legend(loc="upper left", frameon=False)
+    ax[1].set_yticks([0, 1], [f"45 cm ({stats['n45']}회)", f"30 cm ({stats['n30']}회)"])
+    ax[1].set_ylim(-0.6, 1.6)
+    ax[1].set_xlabel("엉덩이가 닿는 순간의 허벅지 굴곡 Δθ (deg)")
+    ax[1].set_title(f"착석 각도: 평균 {stats['contact45']:.1f}° → {stats['contact30']:.1f}° (+{stats['deeper_by']:.1f}°)")
+    fig.tight_layout()
+    fig.savefig(out / "fig_chairs.png", dpi=200, facecolor="white")
     plt.close(fig)
 
 
@@ -416,7 +453,7 @@ def fig_trial(df: pd.DataFrame, prof: Profile, out: Path, cfg: Config = Config()
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--real", default="data/real/S01", help="preprocess_h10.py로 만든 실측 폴더")
+    ap.add_argument("--real", default="data/real/chair30", help="preprocess_h10.py로 만든 실측 폴더 (30 cm 착석 10회)")
     ap.add_argument("--sim", default="data/sim/P01", help="실측 기반 시뮬레이션 참가자 폴더")
     ap.add_argument("--out", default="poster/figs")
     ap.add_argument("--palette", choices=["poster", "slides"], default="poster")
@@ -442,6 +479,12 @@ def main():
     df = real["calib"][k]
     loo = Profile.from_trials(real["calib"][:k] + real["calib"][k + 1:])
     fig_trial(df, loo, out, name="fig_trial_real.png", window=(0.9, float(df["time_s"].iloc[-1])))
+
+    chair_stats = HERE_ROOT / "results" / "real" / "chair_stats.json"
+    if chair_stats.exists():
+        st = json.loads(chair_stats.read_text())
+        st["_profile"] = str(HERE_ROOT / "results" / "real" / "profile_45ref.json")
+        fig_chairs(HERE_ROOT / "data" / "real" / "chair45", HERE_ROOT / "data" / "real" / "chair30", st, out)
 
     sim = load_participant(Path(args.sim))
     sim_prof = Profile.from_trials(sim["calib"])

@@ -12,6 +12,7 @@ import argparse
 from pathlib import Path
 
 import copy
+import json
 import sys
 
 import pandas as pd
@@ -143,16 +144,19 @@ def set_paragraph(p, value):
 # ---------------------------------------------------------------- 결과 숫자
 
 def result_rows(metrics_csv: Path) -> list[list[str]]:
+    """실측 45 cm vs 30 cm 비교표 (compare_chairs.py의 chair_metrics.csv)."""
     m = pd.read_csv(metrics_csv)
-    per = m.groupby(["participant", "cond"]).mean(numeric_only=True).reset_index()
-    mean = per.groupby("cond").mean(numeric_only=True)
-    items = [("최대 허벅지 굴곡 속도 (°/s)", "peak_vel", 1), ("착석 순간 속도 (°/s)", "contact_vel", 1),
-             ("RMS jerk⁴ (°/s³)", "rms_jerk", 0), ("최대 상체 숙임 (°)", "peak_lean", 1),
-             ("착석 시간 (s)", "descent_time", 2)]
-    rows = [["지표", "45 cm", "35 cm OFF", "35 cm H10", "변화"]]
+    g = m.groupby("chair")
+    items = [("착석 각도 Δθ (°)", "contact_dtheta", 1), ("최대 허벅지 굴곡 속도 (°/s)", "peak_vel", 0),
+             ("착석 순간 속도 (°/s)", "contact_vel", 1), ("착석 시간 (s)", "descent_time", 2),
+             ("최대 상체 숙임 (°)", "peak_lean", 1)]
+    rows = [["지표", "45 cm", "30 cm", "차이"]]
     for name, k, nd in items:
-        off, on = mean.loc[2, k], mean.loc[3, k]
-        rows.append([name] + [f"{mean.loc[c, k]:.{nd}f}" for c in (1, 2, 3)] + [f"{(on - off) / off * 100:+.0f}%"])
+        a, b = g[k].mean()["45 cm"], g[k].mean()["30 cm"]
+        rows.append([name, f"{a:.{nd}f}", f"{b:.{nd}f}", f"{b - a:+.{nd}f}"])
+    d = g["deep"].agg(["sum", "count"])
+    rows.append(["낮은 의자(DEEP) 판정", f"{int(d.loc['45 cm', 'sum'])}/{int(d.loc['45 cm', 'count'])}",
+                 f"{int(d.loc['30 cm', 'sum'])}/{int(d.loc['30 cm', 'count'])}", ""])
     return rows
 
 
@@ -163,7 +167,8 @@ def real_stats(real_dir: Path) -> dict:
     m = pd.DataFrame([trial_metrics(df) for df in p["calib"]])
     loo = calib_loo(p["calib"])
     log = pd.read_csv(real_dir / "extraction_log.csv")
-    return {"n_found": len(log), "n_used": len(p["calib"]), "dur": m.descent_time.mean(),
+    ch = json.loads((HERE.parent / "results" / "real" / "chair_stats.json").read_text())
+    return {"chair": ch,"n_found": len(log), "n_used": len(p["calib"]), "dur": m.descent_time.mean(),
             "peak": m.peak_vel.mean(), "lean": m.peak_lean.mean(),
             "quiet": int((~loo.triggered).sum()), "flagged": int(loo.triggered.sum()),
             "fast_dur": m.descent_time.iloc[FAST_REP - 1], "fast_peak": m.peak_vel.iloc[FAST_REP - 1]}
@@ -198,7 +203,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     section(s, L, 18.8, CW, "1. 주제 선정 배경")
     text(s, L, 22.2, CW, 1.8, ["왜 낮은 의자인가?"], size=34, bold=True)
     text(s, L, 24.0, CW, 7.6, [
-        [("① 더 깊이 굽혀야 한다: ", {"bold": True}), "허벅지가 평소보다 10~15° 더 굽혀져야 의자에 닿는다."],
+        [("① 더 깊이 굽혀야 한다: ", {"bold": True}), "실측에서 30 cm 의자는 45 cm보다 허벅지가 9° 더 굽혀졌다."],
         [("② 가장 약한 자세에서 버텨야 한다: ", {"bold": True}), "깊게 굽힐수록 고관절 신전근¹이 체중을 버티기 어렵다.[3]"],
         [("③ 마지막 순간이 가장 빠르다: ", {"bold": True}),
          ("털썩 주저앉거나 뒤로 넘어지기 쉽다.", {"bold": True, "color": WINE}), "[1]"],
@@ -246,7 +251,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
                  anchor=MSO_ANCHOR.MIDDLE)
         y += 4.5
     text(s, 3.2, y - 0.2, 40.0, 1.5, ["※ 앉다가 다시 일어서면(ω < −5°/s) 즉시 STANDING, 토크 0"], size=22, color=GRAY)
-    text(s, L, 72.8, 42.0, 1.9, [f"개인 기준 캘리브레이션 (실측 착석 {st['n_used']}회)"], size=32, bold=True)
+    text(s, L, 72.8, 42.0, 1.9, [f"개인 기준 (실측 30 cm 착석 {st['n_used']}회 + 45 cm 착석 각도)"], size=32, bold=True)
     text(s, L, 74.8, 42.0, 7.8, [
         ["보조 OFF로 평소처럼 앉은 기록을 허벅지 5° 구간으로 나눠 저장"],
         [("• 평균 하강 속도 ω_ref(θ)와 표준편차 σ(θ)", {"bold": True})],
@@ -276,10 +281,10 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     section(s, 2.4, 86.7, 46.8, "4. 작동 검증 (실측 H10 데이터)")
     picture(s, figs / "fig_trial_real.png", L + 2.2, 89.8, 25.6)
     steps = [("① SUIT 로그 디코딩", "1 kHz → 100 Hz"),
-             ("② 앉기 자동 검출", f"{st['n_found']}회 중 보조 OFF {st['n_used']}회"),
+             ("② 의자별 앉기 검출", f"45 cm {st['chair']['n45']}회 · 30 cm {st['chair']['n30']}회"),
              ("③ 개인 기준 생성", f"평균 {st['dur']:.1f} s · 최대 {st['peak']:.0f}°/s"),
              ("④ 정상 착석 재생", f"{st['quiet']}/{st['n_used']}회 제동 없음"),
-             ("⑤ 빠른 착석 감지", f"{st['fast_dur']:.1f} s · {st['fast_peak']:.0f}°/s → 제동")]
+             ("⑤ 낮은 의자 판정", f"30 cm {st['chair']['deep30']}/{st['chair']['n30']}회 DEEP 감지")]
     y = 90.0
     for i, (head, sub) in enumerate(steps):
         box(s, 33.8, y, 15.0, 2.7, [[(head, {"bold": True})], [sub]], size=20,
@@ -305,20 +310,20 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
 
     # 5. 결과 및 기대 효과 --------------------------------------------------------
     section(s, 51.2, 86.7, 36.2, "5. 결과 및 기대 효과")
-    text(s, 51.2, 89.8, 36.2, 1.3, ["근력 저하 사용자 모델 시뮬레이션 (실측 기준 기반, 12명 × 3조건 × 5회)"], size=20, color=GRAY)
-    table(s, 51.2, 91.1, 36.2, result_rows(metrics_csv), col_w=[13.0, 5.4, 5.8, 5.8, 6.2], row_h=1.2, size=21)
+    text(s, 51.2, 89.8, 36.2, 1.3, ["같은 사람의 H10 실측: 45 cm 2회(보행 보조 ON) vs 30 cm 10회"], size=20, color=GRAY)
+    table(s, 51.2, 91.1, 36.2, result_rows(metrics_csv), col_w=[14.6, 7.2, 7.2, 7.2], row_h=1.2, size=21)
     text(s, 51.2, 99.7, 36.2, 4.6, [
-        [("① 낙상 위험 동작 완화: ", {"bold": True}), "35 cm 의자에서 급하강 · 착석 충격 감소"],
+        [("① 낙상 위험 동작 완화: ", {"bold": True}), "낮은 의자를 착석 각도로 자동 감지 (실측 9/10)"],
         [("② 의자 높이와 무관: ", {"bold": True}), "착용형 + 낮은 의자 자동 감지"],
         [("③ 개인 맞춤: ", {"bold": True}), "평소 착석 10~15회만으로 기준 생성"]], size=24, space_after=1)
 
     # 6. 결론 ---------------------------------------------------------------------
     section(s, 51.2, 104.4, 36.2, "6. 결론")
     text(s, 51.2, 107.5, 36.2, 7.0, [
-        [("# 실측 정상 착석 10회", {"bold": True})],
-        {"t": f"정상 착석 {st['quiet']}/{st['n_used']}회 제동 없음 · 빠른 착석 감지", "size": 22, "color": GRAY},
-        [("# 35 cm 의자 급하강 감소", {"bold": True})],
-        {"t": "근력 저하 모델: 최대 속도 −8% · 착석 순간 속도 −8% · jerk −10%", "size": 22, "color": GRAY},
+        [("# 실측: 45 cm 2회 · 30 cm 10회", {"bold": True})],
+        {"t": f"30 cm에서 {st['chair']['deeper_by']:.0f}° 더 깊음 · 낮은 의자 판정 {st['chair']['deep30']}/{st['chair']['n30']} · 정상 착석 {st['quiet']}/{st['n_used']} 제동 없음", "size": 22, "color": GRAY},
+        [("# H10 적용", {"bold": True})],
+        {"t": "실측 기준값을 넣은 C 코드로 30 cm 의자에서 H10 OFF vs ON 비교", "size": 22, "color": GRAY},
         [("# 주장 범위", {"bold": True})],
         {"t": "낮은 의자 착석 후반부의 급하강 감소 (낙상 예방 자체는 입증하지 않음)", "size": 22, "color": GRAY}],
         size=26, space_after=1)
@@ -333,8 +338,8 @@ def main():
     ap.add_argument("--template", required=True)
     ap.add_argument("--out", default=str(HERE / "착석보조_포스터.pptx"))
     ap.add_argument("--figs", default=str(HERE / "figs"))
-    ap.add_argument("--metrics", default=str(HERE.parent / "results" / "sim" / "metrics.csv"))
-    ap.add_argument("--real", default=str(HERE.parent / "data" / "real" / "S01"))
+    ap.add_argument("--metrics", default=str(HERE.parent / "results" / "real" / "chair_metrics.csv"))
+    ap.add_argument("--real", default=str(HERE.parent / "data" / "real" / "chair30"))
     args = ap.parse_args()
     build(Path(args.template), Path(args.out), Path(args.figs), Path(args.metrics), Path(args.real))
 

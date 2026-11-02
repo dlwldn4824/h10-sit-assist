@@ -5,8 +5,8 @@
     data/P01/calib_rep01.csv ... calib_rep15.csv   45 cm 의자, 보조 OFF (개인 기준용)
     data/P01/profile.json                          calib로 만든 개인 기준
     data/P01/cond1_rep01.csv ...                   45 cm 의자 (그림자 모드)
-    data/P01/cond2_rep01.csv ...                   35 cm 의자 + H10 OFF (그림자 모드)
-    data/P01/cond3_rep01.csv ...                   35 cm 의자 + H10 (보조 ON)
+    data/P01/cond2_rep01.csv ...                   30 cm 의자 + H10 OFF (그림자 모드)
+    data/P01/cond3_rep01.csv ...                   30 cm 의자 + H10 (보조 ON)
 
 하강 모델 (한쪽 허벅지, deg 단위):
     dω/dt = k·(ω_의도 − ω) + b·(근력 부족 토크 − H10 토크)
@@ -17,7 +17,8 @@
 근력 저하 정도(weakness)는 사람마다 정해져 모든 조건에 똑같이 적용된다.
 OFF 조건에서도 컨트롤러를 그림자 모드로 돌려 tau_cmd(계산만 한 토크)를 같이 기록한다.
 
-    python simulate_data.py --out data/sim --from-profile data/real/S01/profile.json
+    python simulate_data.py --out data/sim --from-profile data/real/chair30/profile.json \
+        --chair-stats results/real/chair_stats.json
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ FS = 100.0
 B = 10.0            # deg/s² per Nm, 토크가 고관절 각가속도에 주는 영향
 K_TRACK = 8.0       # 1/s, 사람이 의도한 속도를 따라가는 정도
 CALIB_REPS = 15
-# (번호, 의자, 그림자 모드) — 45 cm / 35 cm + H10 OFF / 35 cm + H10
+# (번호, 의자, 그림자 모드) — 45 cm / 30 cm + H10 OFF / 30 cm + H10
 CONDITIONS = ((1, "standard", True), (2, "low", True), (3, "low", False))
 LOG_COLS = ["phase", "level", "posture", "z_l", "z_r", "omega_ref_l", "omega_ref_r", "lean_ref",
             "tau_support", "tau_brake", "tau_cmd_l", "tau_cmd_r"]
@@ -58,8 +59,8 @@ def make_person(rng, pid: str, base: dict | None = None) -> dict:
     knee = rng.uniform(44, 52)
     person = {"id": pid,
             "knee_height_cm": round(knee, 1),
-            "chair_standard_cm": round(knee, 1),           # 무릎 높이 100%
-            "chair_low_cm": round(knee * 0.78, 1),         # 무릎 높이 약 78%
+            "chair_standard_cm": 45,
+            "chair_low_cm": 30,
             "stand": rng.uniform(0, 6, 2),                 # 서 있을 때 허벅지 각도 (좌, 우)
             "trunk_stand": rng.uniform(0, 6),              # 서 있을 때 상체 각도
             "lean_peak": rng.uniform(30, 40),              # 평소 착석 중 최대 상체 숙임
@@ -74,6 +75,8 @@ def make_person(rng, pid: str, base: dict | None = None) -> dict:
     if base:
         person["w_peak"] = base["w_peak"] * rng.uniform(0.9, 1.1)
         person["contact_std"] = base["contact_std"] + rng.uniform(-3, 3)
+        if "low_extra" in base:                         # 실측 45 cm → 30 cm 착석 각도 차이
+            person["low_extra"] = base["low_extra"] + rng.uniform(-1.5, 1.5)
         person["lean_peak"] = base["lean_peak"] * rng.uniform(0.9, 1.1)
     return person
 
@@ -173,9 +176,13 @@ def main():
     ap.add_argument("--reps", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--from-profile", help="실측 profile.json. 주면 그 사람의 평소 착석 특성에서 출발")
+    ap.add_argument("--chair-stats", help="compare_chairs.py의 chair_stats.json. 45 cm 착석 각도와 30 cm 추가 굴곡을 실측값으로")
     args = ap.parse_args()
     rng = np.random.default_rng(args.seed)
     base = base_from_profile(Path(args.from_profile)) if args.from_profile else None
+    if base and args.chair_stats:
+        st = json.loads(Path(args.chair_stats).read_text())
+        base["contact_std"], base["low_extra"] = st["contact45"], st["deeper_by"]
     if base:
         print("실측 기준에서 출발:", {k: round(v, 1) for k, v in base.items()})
     out = Path(args.out)

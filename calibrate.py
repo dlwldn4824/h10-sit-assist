@@ -2,7 +2,7 @@
 
     python calibrate.py data/P01
 
-35 cm + H10 조건을 시작하기 전에 돌려서, 정상 착석에서 제동이 잘못 켜지는
+30 cm + H10 조건을 시작하기 전에 돌려서, 정상 착석에서 제동이 잘못 켜지는
 비율이 낮은지(leave-one-out) 먼저 확인한다.
 """
 from __future__ import annotations
