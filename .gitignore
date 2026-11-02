@@ -1,0 +1,7 @@
+# 인체 실험 데이터와 결과는 저장소에 올리지 않는다
+data/
+results/
+
+__pycache__/
+.pytest_cache/
+.DS_Store
