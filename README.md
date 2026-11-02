@@ -19,22 +19,42 @@
 | 마지막 순간이 가장 빠릅니다 | 제동이 풀리면 착석 직전에 속도가 붙어 의자에 세게 부딪히거나 뒤로 넘어지기 쉽습니다. |
 | 생활 곳곳에 있습니다 | 소파, 좌변기, 좌식 의자처럼 매일 앉는 자리가 낮습니다. |
 
-그래서 알고리즘에는 **DEEP 단계(평소 착석 각도 + 2SD를 넘어 계속 내려감 → 낮은 의자로 판단, 제동 1.5배)** 가 있습니다.
+낮은 의자일수록 일어설 때 고관절·무릎에 걸리는 부하가 커진다는 연구가 있습니다[^rodosky]. 그래서 알고리즘에는 **DEEP 단계(평소 착석 각도 + 2SD를 넘어 계속 내려감 → 낮은 의자로 판단, 제동 1.5배)** 가 있습니다.
 
 ## 1. 타깃 사용자
 
 | 항목 | 내용 |
 |---|---|
-| 대상 | **낮은 의자 앞의 근감소증 위험 고령자.** AWGS 2019 기준 5회 의자 일어서기 ≥ 12초 |
+| 대상 | **착석 제어가 어려운 근감소증 위험 고령자.** 근거: AWGS 2019 기준 5회 의자 일어서기 ≥ 12초[^awgs] |
 | 상태 | 혼자 걸을 수 있지만 고관절 신전근의 편심성 제어가 약해 착석 후반부를 버티지 못함 |
 | 상황 | 낮은 의자·소파·좌변기에서 털썩 앉음. 상체를 덜 숙여 무게중심이 발 뒤로 빠짐 |
-| 왜 문제인가 | 앉기·일어서기 같은 자세 전환은 고령자 낙상이 자주 일어나는 순간 |
+| 왜 문제인가 | 앉기·일어서기 같은 자세 전환은 고령자 낙상이 자주 일어나는 순간[^robinovitch] |
 | 실측 데이터 | H10 SUIT 로그, 45 cm 의자 정상 착석 10회 |
 | 35 cm 의자 | 실측 기준에서 출발한 근력 저하 사용자 모델 시뮬레이션 |
 
 이 프로젝트는 **'낮은 의자 착석'이라는 상황**에 집중합니다. 근감소증 위험 고령자는 이 상황에서 가장 큰 어려움을 겪는 사용자입니다.
 
 ![자세](poster/figs/fig_posture.png)
+
+### 용어
+
+![용어](presentation/figs/fig_terms.png)
+
+| 용어 | 뜻 |
+|---|---|
+| 굴곡 · 신전 | 굴곡은 관절을 굽히는 움직임, 신전은 펴는 움직임입니다. 앉을 때 고관절은 굴곡합니다. |
+| 고관절 신전근 | 엉덩이의 대둔근과 허벅지 뒤의 햄스트링입니다. 다리를 뒤로 펴는 힘을 냅니다. |
+| 편심성 수축 | 근육이 늘어나면서 힘을 내는 수축입니다. 앉을 때 하강 속도를 늦추는 브레이크가 됩니다. |
+| 근감소증 | 나이가 들며 근육량과 근력이 함께 줄어드는 질환입니다.[^awgs] |
+| IMU | 가속도와 회전 속도로 기울기와 움직임을 재는 관성 센서입니다. |
+| 엔코더 (incPosDeg) | 고관절 모터의 회전 센서로 잰 각도입니다. 허벅지 IMU 각도를 빼면 상체 기울기가 됩니다. |
+| Δθ | 서 있을 때보다 허벅지가 굽혀진 각도입니다. |
+| ω (각속도) | 허벅지가 굽혀지는 속도(°/s)입니다. |
+| σ · SD (표준편차) | 여러 번 착석 사이에 값이 흩어진 정도입니다. 2SD 안에 정상 착석의 약 95%가 들어옵니다. |
+| z | 지금 속도가 평소 평균보다 표준편차의 몇 배만큼 빠른지 나타냅니다. |
+| τ (토크), Nm | 관절을 돌리는 힘과 그 단위(뉴턴미터)입니다. |
+| RMS jerk | 가속도가 얼마나 급하게 바뀌는지의 평균 크기입니다. 작을수록 부드럽습니다.[^jerk] |
+| leave-one-out | 한 번씩 빼고 나머지로 기준을 만든 뒤, 빼 둔 시행으로 시험하는 교차 검증입니다. |
 
 ## 2. 데이터 흐름
 
@@ -178,3 +198,10 @@ while running:
 ```
 
 H10 루프가 1 kHz면 10샘플 평균을 내서 100 Hz로 호출하거나, `Config(fs=1000)`으로 바꾸고 기준을 다시 만드세요.
+
+## 참고문헌
+
+[^robinovitch]: Robinovitch SN, Feldman F, Yang Y, et al. Video capture of the circumstances of falls in elderly people residing in long-term care: an observational study. *Lancet*. 2013;381(9860):47–54.
+[^awgs]: Chen LK, Woo J, Assantachai P, et al. Asian Working Group for Sarcopenia: 2019 Consensus Update on Sarcopenia Diagnosis and Treatment. *J Am Med Dir Assoc*. 2020;21(3):300–307.e2.
+[^rodosky]: Rodosky MW, Andriacchi TP, Andersson GBJ. The influence of chair height on lower limb mechanics during rising. *J Orthop Res*. 1989;7(2):266–271.
+[^jerk]: Balasubramanian S, Melendez-Calderon A, Roby-Brami A, Burdet E. On the analysis of movement smoothness. *J NeuroEng Rehabil*. 2015;12:112.

@@ -95,6 +95,92 @@ def fig_posture(out: Path):
     plt.close(fig)
 
 
+# ---------------------------------------------------------------- 1-2. 용어 설명 (굴곡 · 신전 · 신전근 · 편심성 수축)
+
+def _thigh_back(knee, hip):
+    """허벅지 뒤쪽 방향 단위벡터 (오른쪽을 보고 선 사람 기준)."""
+    d = (knee - hip) / np.linalg.norm(knee - hip)
+    return np.array([d[1], -d[0]])
+
+
+def _muscles(ax, ankle, knee, hip, shoulder, color, lw=11, alpha=0.55):
+    """대둔근(엉덩이 뒤)과 햄스트링(허벅지 뒤)을 굵은 반투명 띠로 그린다."""
+    back = _thigh_back(knee, hip)
+    trunk = (shoulder - hip) / np.linalg.norm(shoulder - hip)
+    trunk_back = np.array([-trunk[1], trunk[0]])          # 몸통 뒤쪽 (오른쪽을 보고 섬)
+    pelvis_back = hip + trunk * 0.12 + trunk_back * 0.08
+    glute_end = hip + (knee - hip) * 0.30 + back * 0.06
+    ham_start = hip + back * 0.06
+    ham_end = knee + back * 0.05
+    for a, b in ((pelvis_back, glute_end), (ham_start, ham_end)):
+        ax.plot([a[0], b[0]], [a[1], b[1]], c=color, lw=lw, alpha=alpha, solid_capstyle="round", zorder=4)
+    return pelvis_back, glute_end, ham_start, ham_end
+
+
+def _stick(ax, x0, angles, color="#1a1a1c"):
+    ankle, knee, hip, shoulder, head, _ = (p + [x0, 0] for p in _pose(*angles))
+    ax.plot([x0 - 0.06, x0 + 0.2], [0, 0], c=color, lw=6, solid_capstyle="round")
+    pts = np.array([ankle, knee, hip, shoulder])
+    ax.plot(pts[:, 0], pts[:, 1], c=color, lw=6, solid_capstyle="round", solid_joinstyle="round", zorder=3)
+    ax.add_patch(plt.Circle(head, 0.085, color=color, zorder=3))
+    ax.add_patch(plt.Circle(hip, 0.035, color="white", ec=color, lw=2, zorder=5))
+    return ankle, knee, hip, shoulder
+
+
+def fig_terms(out: Path):
+    from matplotlib.patches import Arc, FancyArrowPatch
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5.6))
+    acc = WINE
+    # ① 굴곡 · 신전: 허벅지가 앞(굴곡)·뒤(신전)로 움직인 모습을 반투명으로
+    ax = axes[0]
+    ankle, knee, hip, shoulder = _stick(ax, 0.45, (0, 2, 2))
+    for ang, col, label, tx in ((55, acc, "굴곡 (굽힘)", 0.62), (-28, "#8a8a8f", "신전 (폄)", -0.55)):
+        t = np.radians(ang)
+        k2 = hip + 0.45 * np.array([np.sin(t), -np.cos(t)])
+        ax.plot([hip[0], k2[0]], [hip[1], k2[1]], c=col, lw=6, alpha=0.45, solid_capstyle="round")
+        a0, a1 = (-90, -90 + ang) if ang > 0 else (-90 + ang, -90)
+        ax.add_patch(Arc(hip, 0.5, 0.5, theta1=a0, theta2=a1, color=col, lw=2.5))
+        ax.text(k2[0] + 0.06 if ang > 0 else tx, k2[1] + (0.05 if ang > 0 else -0.12), label, color=col,
+                fontsize=19, fontweight="bold")
+    ax.set_title("① 굴곡과 신전", fontsize=21, fontweight="bold")
+    # ② 고관절 신전근
+    ax = axes[1]
+    ankle, knee, hip, shoulder = _stick(ax, 0.75, (0, 2, 2))
+    pb, ge, hs, he = _muscles(ax, ankle, knee, hip, shoulder, acc)
+    ax.annotate("대둔근 (엉덩이)", xy=(pb + ge) / 2, xytext=(-0.55, 1.2), fontsize=17, color=acc, fontweight="bold",
+                arrowprops=dict(arrowstyle="-", color=acc, lw=1.5))
+    ax.annotate("햄스트링\n(허벅지 뒤)", xy=(hs + he) / 2, xytext=(-0.55, 0.45), fontsize=17, color=acc,
+                fontweight="bold", arrowprops=dict(arrowstyle="-", color=acc, lw=1.5))
+    ax.text(0.45, -0.22, "다리를 뒤로 펴는(신전) 근육", fontsize=16, color="#333333", ha="center")
+    ax.set_title("② 고관절 신전근", fontsize=21, fontweight="bold")
+    # ③ 편심성 수축 + H10 신전 토크
+    ax = axes[2]
+    ankle, knee, hip, shoulder = _stick(ax, 0.75, (12, 60, 30))
+    ax.add_patch(plt.Rectangle((hip[0] - 0.32, 0), 0.42, hip[1] - 0.06, color="#e3e5e3", zorder=0))
+    pb, ge, hs, he = _muscles(ax, ankle, knee, hip, shoulder, acc)
+    back = _thigh_back(knee, hip)
+    d = (he - hs) / np.linalg.norm(he - hs)
+    mid = (hs + he) / 2 + back * 0.13
+    for sgn in (-1, 1):
+        ax.add_patch(FancyArrowPatch(mid + sgn * d * 0.05, mid + sgn * d * 0.22, arrowstyle="-|>",
+                                     mutation_scale=18, lw=2.5, color=acc, zorder=6))
+    ax.text(0.45, -0.22, "근육이 늘어나면서 힘을 내 하강을 늦춤", fontsize=16, color=acc, fontweight="bold", ha="center")
+    ax.add_patch(Arc(hip, 0.42, 0.42, theta1=150, theta2=250, color="#1a1a1c", lw=3))
+    tip = hip + 0.21 * np.array([np.cos(np.radians(250)), np.sin(np.radians(250))])
+    ax.add_patch(FancyArrowPatch(tip + [-0.04, 0.03], tip + [0.01, -0.01], arrowstyle="-|>", mutation_scale=20,
+                                 lw=3, color="#1a1a1c"))
+    ax.text(-0.55, 1.3, "H10 신전 토크\n= 하강 브레이크", fontsize=17, color="#1a1a1c", fontweight="bold")
+    ax.set_title("③ 편심성 수축 (앉을 때)", fontsize=21, fontweight="bold")
+    for ax in axes:
+        ax.set_xlim(-0.6, 1.6)
+        ax.set_ylim(-0.32, 1.78)
+        ax.set_aspect("equal")
+        ax.axis("off")
+    fig.tight_layout()
+    fig.savefig(out / "fig_terms.png", dpi=200, facecolor="white")
+    plt.close(fig)
+
+
 # ---------------------------------------------------------------- 2. 개인 기준값
 
 def fig_profile(p: dict, prof: Profile, out: Path, cfg: Config = Config(), highlight: int | None = None):
@@ -220,6 +306,7 @@ def main():
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     fig_posture(out)
+    fig_terms(out)
 
     real = load_participant(Path(args.real))
     prof = Profile.from_trials(real["calib"])
