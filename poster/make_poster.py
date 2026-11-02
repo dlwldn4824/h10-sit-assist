@@ -147,7 +147,7 @@ def result_rows(metrics_csv: Path) -> list[list[str]]:
     per = m.groupby(["participant", "cond"]).mean(numeric_only=True).reset_index()
     mean = per.groupby("cond").mean(numeric_only=True)
     items = [("최대 허벅지 굴곡 속도 (°/s)", "peak_vel", 1), ("착석 순간 속도 (°/s)", "contact_vel", 1),
-             ("RMS jerk (°/s³)", "rms_jerk", 0), ("최대 상체 숙임 (°)", "peak_lean", 1),
+             ("RMS jerk⁴ (°/s³)", "rms_jerk", 0), ("최대 상체 숙임 (°)", "peak_lean", 1),
              ("착석 시간 (s)", "descent_time", 2)]
     rows = [["지표", "45 cm", "35 cm OFF", "35 cm H10", "변화"]]
     for name, k, nd in items:
@@ -199,11 +199,11 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     text(s, L, 22.2, CW, 1.8, ["왜 낮은 의자인가?"], size=34, bold=True)
     text(s, L, 24.0, CW, 7.6, [
         [("① 더 깊이 굽혀야 한다: ", {"bold": True}), "허벅지가 평소보다 10~15° 더 굽혀져야 의자에 닿는다."],
-        [("② 가장 약한 자세에서 버텨야 한다: ", {"bold": True}), "깊게 굽힐수록 고관절 신전근이 체중을 버티기 어렵다."],
+        [("② 가장 약한 자세에서 버텨야 한다: ", {"bold": True}), "깊게 굽힐수록 고관절 신전근¹이 체중을 버티기 어렵다.[3]"],
         [("③ 마지막 순간이 가장 빠르다: ", {"bold": True}),
-         ("털썩 주저앉거나 뒤로 넘어지기 쉽다.", {"bold": True, "color": WINE})],
+         ("털썩 주저앉거나 뒤로 넘어지기 쉽다.", {"bold": True, "color": WINE}), "[1]"],
         [("④ 생활 곳곳에 있다: ", {"bold": True}), "소파 · 좌변기 · 좌식 의자"]], size=27, space_after=6)
-    box(s, L, 31.0, CW, 2.2, [[("타깃: ", {"bold": True}), "낮은 의자 앞의 근감소증 위험 고령자 (AWGS 2019: 5회 의자 일어서기 ≥ 12초)"]],
+    box(s, L, 31.0, CW, 2.2, [[("타깃: ", {"bold": True}), "착석 제어가 어려운 근감소증 위험 고령자 (AWGS 2019[2]: 5회 의자 일어서기 ≥ 12초)"]],
         size=22, align=PP_ALIGN.LEFT)
     text(s, L, 33.5, CW, 1.6, ["기존 방법은 측정과 개입을 동시에 하지 못한다"], size=30, bold=True)
     table(s, L, 35.3, CW, [
@@ -220,7 +220,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     text(s, R, 22.2, CW, 1.8, ["어째서 낙상 위험이 생기는가?"], size=34, bold=True)
     picture(s, figs / "fig_posture.png", R, 24.0, CW)
     text(s, R, 38.4, CW, 4.4, [
-        ["고관절 신전근은 ", ("① 숙인 상체를 버티고 ② 하강 속도를 제동", {"bold": True}),
+        ["고관절 신전근¹은 편심성 수축²으로 ", ("① 숙인 상체를 버티고 ② 하강 속도를 제동", {"bold": True}),
          "한다. 근력이 약하면 둘 다 무너져 상체를 세운 채 빠르게 내려가고, ",
          ("무게중심이 발 뒤로 빠진다.", {"bold": True, "color": WINE})]])
     box(s, R, 43.0, CW, 3.3, [["H10 고관절 ", ("신전 토크", {"bold": True}), " 하나로"],
@@ -257,7 +257,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     text(s, 46.3, 51.0, 41.5, 2.0, ["보조 토크 = 상체 지지 + 적응형 제동"], size=34, bold=True)
     eq = [("1. 상체 지지", "τ_s = K_s · sin φ   (K_s = 6 Nm, φ: 엔코더 − 허벅지 IMU)",
            "숙인 상체를 버티는 신전근 부담을 덜어 올바른 숙임 자세 유지"),
-          ("2. 적응형 하강 제동", "z = (ω̂ − ω_ref(θ̂)) / σ(θ̂),   τ_b = K·g·max(0, z − 3.5)",
+          ("2. 적응형 하강 제동", "z³ = (ω̂ − ω_ref(θ̂)) / σ(θ̂),   τ_b = K·g·max(0, z − 3.5)",
            "ω̂ = ω + α·0.05 s로 미리 반응 · DEEP / 상체 덜 숙임이면 g = 1.5 · 급가속이면 z ≥ 5"),
           ("3. 출력 제한", "τ = sat[0, 10 Nm](τ_s + τ_b),   상승 ≤ 60 Nm/s",
            "두 토크 모두 신전 방향이라 서로 상쇄되지 않음 · 일어설 때는 0")]
@@ -274,21 +274,34 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
 
     # 4. 작동 검증 (실측) ------------------------------------------------------------
     section(s, 2.4, 86.7, 46.8, "4. 작동 검증 (실측 H10 데이터)")
-    picture(s, figs / "fig_trial_real.png", L, 90.0, 30.6)
+    picture(s, figs / "fig_trial_real.png", L + 2.2, 89.8, 25.6)
     steps = [("① SUIT 로그 디코딩", "1 kHz → 100 Hz"),
              ("② 앉기 자동 검출", f"{st['n_found']}회 중 보조 OFF {st['n_used']}회"),
              ("③ 개인 기준 생성", f"평균 {st['dur']:.1f} s · 최대 {st['peak']:.0f}°/s"),
              ("④ 정상 착석 재생", f"{st['quiet']}/{st['n_used']}회 제동 없음"),
              ("⑤ 빠른 착석 감지", f"{st['fast_dur']:.1f} s · {st['fast_peak']:.0f}°/s → 제동")]
-    y = 90.2
+    y = 90.0
     for i, (head, sub) in enumerate(steps):
-        box(s, 33.8, y, 15.0, 3.0, [[(head, {"bold": True})], [sub]], size=21,
+        box(s, 33.8, y, 15.0, 2.7, [[(head, {"bold": True})], [sub]], size=20,
             fill=PINK if i < 4 else RGBColor(0xF4, 0xC7, 0xCF))
         if i < 4:
-            arrow(s, 40.8, y + 3.05, 1.0, 0.9)
-        y += 4.0
-    text(s, L, 112.2, 46.0, 1.6, ["실측 rep05(빠르게 앉은 시행)를 나머지 9회로 만든 기준에 넣어 다시 재생 (토크는 계산값)"],
-         size=20, color=GRAY)
+            arrow(s, 40.9, y + 2.75, 0.8, 0.6)
+        y += 3.45
+
+    # 용어 · 출처 각주 (본문 숫자와 연결)
+    R_ = RGBColor(0x44, 0x44, 0x44)
+    text(s, L, 108.0, 46.4, 6.6, [
+        {"t": [("용어 · 출처", {"bold": True, "color": WINE}),
+               ("   그래프: 실측 rep05를 나머지 9회 기준에 다시 재생 (토크는 계산값)", {"color": GRAY})], "size": 17},
+        {"t": "¹ 고관절 신전근: 엉덩이 · 허벅지 뒤 근육(대둔근 · 햄스트링), 다리를 뒤로 폄   "
+              "² 편심성 수축: 근육이 늘어나면서 힘을 내는 수축(착석 시 브레이크)   "
+              "³ z: 평소 평균보다 표준편차의 몇 배 빠른지   ⁴ jerk: 가속도 변화의 급격함(작을수록 부드러움)",
+         "size": 15, "color": R_},
+        {"t": "[1] Robinovitch SN et al. Lancet. 2013;381(9860):47–54.   "
+              "[2] Chen LK et al. J Am Med Dir Assoc. 2020;21(3):300–307.   "
+              "[3] Rodosky MW et al. J Orthop Res. 1989;7(2):266–271.   "
+              "[4] Balasubramanian S et al. J NeuroEng Rehabil. 2015;12:112.", "size": 15, "color": R_}],
+        size=15, space_after=2)
 
     # 5. 결과 및 기대 효과 --------------------------------------------------------
     section(s, 51.2, 86.7, 36.2, "5. 결과 및 기대 효과")

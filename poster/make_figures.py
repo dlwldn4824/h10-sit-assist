@@ -224,8 +224,8 @@ def fig_profile(p: dict, prof: Profile, out: Path, cfg: Config = Config(), highl
 
 # ---------------------------------------------------------------- 3. 조건 비교 (같은 참가자)
 
-def fig_compare(p: dict, prof: Profile, out: Path, cfg: Config = Config()):
-    fig, ax = plt.subplots(1, 2, figsize=(12, 4.6))
+def fig_compare(p: dict, prof: Profile, out: Path, cfg: Config = Config(), tall: bool = False):
+    fig, ax = plt.subplots(2, 1, figsize=(8.6, 8.4)) if tall else plt.subplots(1, 2, figsize=(12, 4.6))
     seen = set()
     for tr in p["trials"]:
         df, cond = tr["df"], tr["cond"]
@@ -245,8 +245,8 @@ def fig_compare(p: dict, prof: Profile, out: Path, cfg: Config = Config()):
     ax[0].set_title("하강 속도: 35 cm 후반부 급가속이 줄어듦")
     ax[1].set_title("상체 숙임: 조건 사이 차이는 작음")
     fig.legend(*ax[0].get_legend_handles_labels(), loc="lower center", ncol=3, frameon=False)
-    fig.tight_layout(rect=(0, 0.1, 1, 1))
-    fig.savefig(out / "fig_compare.png", dpi=200, facecolor="white")
+    fig.tight_layout(rect=(0, 0.06 if tall else 0.1, 1, 1))
+    fig.savefig(out / ("fig_compare_tall.png" if tall else "fig_compare.png"), dpi=200, facecolor="white")
     plt.close(fig)
 
 
@@ -320,6 +320,7 @@ def main():
     sim = load_participant(Path(args.sim))
     sim_prof = Profile.from_trials(sim["calib"])
     fig_compare(sim, sim_prof, out)
+    fig_compare(sim, sim_prof, out, tall=True)
     tr = next(t for t in sim["trials"] if t["cond"] == 3 and t["rep"] == 1)
     fig_trial(tr["df"], sim_prof, out)
     print(f"{out}/ 에 그림을 저장했습니다.")
