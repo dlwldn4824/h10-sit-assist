@@ -148,8 +148,8 @@ def result_rows(metrics_csv: Path) -> list[list[str]]:
     mean = per.groupby("cond").mean(numeric_only=True)
     items = [("최대 허벅지 굴곡 속도 (°/s)", "peak_vel", 1), ("착석 순간 속도 (°/s)", "contact_vel", 1),
              ("RMS jerk (°/s³)", "rms_jerk", 0), ("최대 상체 숙임 (°)", "peak_lean", 1),
-             ("상체 덜 숙임 판단 시간 (%)", "upright_pct", 0), ("착석 시간 (s)", "descent_time", 2)]
-    rows = [["지표", "Normal", "피로 + OFF", "피로 + H10", "변화"]]
+             ("착석 시간 (s)", "descent_time", 2)]
+    rows = [["지표", "45 cm", "35 cm OFF", "35 cm H10", "변화"]]
     for name, k, nd in items:
         off, on = mean.loc[2, k], mean.loc[3, k]
         rows.append([name] + [f"{mean.loc[c, k]:.{nd}f}" for c in (1, 2, 3)] + [f"{(on - off) / off * 100:+.0f}%"])
@@ -221,7 +221,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     picture(s, figs / "fig_posture.png", R, 24.0, CW)
     text(s, R, 38.4, CW, 4.4, [
         ["고관절 신전근은 ", ("① 숙인 상체를 버티고 ② 하강 속도를 제동", {"bold": True}),
-         "한다. 피로하면 둘 다 무너져 상체를 세운 채 빠르게 내려가고, ",
+         "한다. 근력이 약하면 둘 다 무너져 상체를 세운 채 빠르게 내려가고, ",
          ("무게중심이 발 뒤로 빠진다.", {"bold": True, "color": WINE})]])
     box(s, R, 43.0, CW, 3.3, [["H10 고관절 ", ("신전 토크", {"bold": True}), " 하나로"],
                               [("상체 지지 + 하강 제동", {"bold": True, "color": WINE}), "을 동시에 보조"]], size=30)
@@ -292,10 +292,10 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
 
     # 5. 결과 및 기대 효과 --------------------------------------------------------
     section(s, 51.2, 86.7, 36.2, "5. 결과 및 기대 효과")
-    text(s, 51.2, 89.8, 36.2, 1.3, ["실측 기준 기반 시뮬레이션: 12명 × 3조건 × 5회, 낮은 의자"], size=20, color=GRAY)
+    text(s, 51.2, 89.8, 36.2, 1.3, ["근력 저하 사용자 모델 시뮬레이션 (실측 기준 기반, 12명 × 3조건 × 5회)"], size=20, color=GRAY)
     table(s, 51.2, 91.1, 36.2, result_rows(metrics_csv), col_w=[13.0, 5.4, 5.8, 5.8, 6.2], row_h=1.2, size=21)
     text(s, 51.2, 99.7, 36.2, 4.6, [
-        [("① 낙상 위험 동작 완화: ", {"bold": True}), "급하강 · 뒤로 주저앉는 자세 감소"],
+        [("① 낙상 위험 동작 완화: ", {"bold": True}), "35 cm 의자에서 급하강 · 착석 충격 감소"],
         [("② 의자 높이와 무관: ", {"bold": True}), "착용형 + 낮은 의자 자동 감지"],
         [("③ 개인 맞춤: ", {"bold": True}), "평소 착석 10~15회만으로 기준 생성"]], size=24, space_after=1)
 
@@ -303,7 +303,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     section(s, 51.2, 104.4, 36.2, "6. 한계 및 개선 방안")
     text(s, 51.2, 107.5, 36.2, 7.0, [
         [("# 실측은 1명 · 정상 착석 10회", {"bold": True})],
-        {"t": "피로 · 낮은 의자 효과는 시뮬레이션 → 실제 3조건 실험과 다수 피험자로 검증", "size": 22, "color": GRAY},
+        {"t": "35 cm 의자 효과는 시뮬레이션 → 45 cm / 35 cm OFF / 35 cm H10 실측으로 검증", "size": 22, "color": GRAY},
         [("# 낙상 예방은 아직 미검증", {"bold": True})],
         {"t": "착석 속도 · jerk · 상체 숙임 지표로 주장 범위 한정", "size": 22, "color": GRAY},
         [("# 상태 피드백 부재", {"bold": True})],

@@ -24,7 +24,20 @@ matplotlib.rcParams.update({"font.family": "AppleGothic", "axes.unicode_minus": 
                             "font.size": 19, "legend.fontsize": 16, "axes.titlesize": 20, "axes.spines.top": False, "axes.spines.right": False})
 WINE, GRAY, GREEN, RED, BLUE, PURPLE = "#772235", "#9a9a9a", "#2e8b57", "#d1495b", "#2f6db5", "#7b4fa0"
 COND_COLOR = {1: GREEN, 2: RED, 3: BLUE}
-COND_LABEL = {1: "Normal", 2: "Fatigue + H10 OFF", 3: "Fatigue + Adaptive H10"}
+PHASE_COLOR = {Phase.DESCENT: "#f6e7c1", Phase.DEEP: "#f4c7c3", Phase.SEATED: "#e3e3e3"}
+H10_DOT = "#f2a541"
+
+# 발표 슬라이드용: 레퍼런스 덱의 초록 + 검정 · 회색
+SLIDES_PALETTE = {"WINE": "#3f9d63", "GRAY": "#b5b5b8", "GREEN": "#3f9d63", "RED": "#1a1a1c",
+                  "BLUE": "#1a1a1c", "PURPLE": "#6b6b70", "H10_DOT": "#3f9d63",
+                  "COND_COLOR": {1: "#b5b5b8", 2: "#1a1a1c", 3: "#3f9d63"},
+                  "PHASE_COLOR": {Phase.DESCENT: "#f3f5f3", Phase.DEEP: "#e1f0e6", Phase.SEATED: "#e6e6e8"}}
+
+
+def use_palette(name: str):
+    if name == "slides":
+        globals().update(SLIDES_PALETTE)
+COND_LABEL = {1: "45 cm", 2: "35 cm + H10 OFF", 3: "35 cm + H10"}
 
 
 # ---------------------------------------------------------------- 1. 올바른 / 잘못된 착석 자세
@@ -50,7 +63,7 @@ def _draw_person(ax, x0, angles, color, chair=False, h10=False, com_ok=True):
     ax.plot(pts[:, 0], pts[:, 1], c=color, lw=7, solid_capstyle="round", solid_joinstyle="round")
     ax.add_patch(plt.Circle(head, 0.09, color=color))
     if h10:
-        ax.add_patch(plt.Circle(hip, 0.06, color="#f2a541", zorder=5))
+        ax.add_patch(plt.Circle(hip, 0.06, color=H10_DOT, zorder=5))
     ax.plot([com[0]] * 2, [com[1], 0], ls=":", c="k", lw=1.5)
     ax.plot(com[0], com[1], "o", ms=9, mfc="white", mec="k", zorder=6)
     if not com_ok:
@@ -75,7 +88,7 @@ def fig_posture(out: Path):
         ax.set_ylim(-0.08, 1.75)
         ax.set_aspect("equal")
         ax.axis("off")
-    axes[0].text(1.25, -0.06, "● H10 (고관절)", color="#f2a541", ha="center", va="top", fontsize=17)
+    axes[0].text(1.25, -0.06, "● H10 (고관절)", color=H10_DOT, ha="center", va="top", fontsize=17)
     axes[1].text(2.5, 1.2, "무게중심이\n발 뒤로", color=RED, ha="center", fontsize=19, fontweight="bold")
     fig.tight_layout()
     fig.savefig(out / "fig_posture.png", dpi=200, facecolor="white")
@@ -143,10 +156,10 @@ def fig_compare(p: dict, prof: Profile, out: Path, cfg: Config = Config()):
         a.set_xlabel("허벅지 굴곡 Δθ (deg)")
     ax[0].set_ylabel("허벅지 굴곡 속도 (deg/s)")
     ax[1].set_ylabel("상체 숙임 (deg)")
-    ax[0].set_title("하강 속도: 후반부 급가속이 줄어듦")
-    ax[1].set_title("상체 숙임: 피로로 줄어든 숙임이 회복됨")
-    ax[0].legend(loc="upper left", frameon=False)
-    fig.tight_layout()
+    ax[0].set_title("하강 속도: 35 cm 후반부 급가속이 줄어듦")
+    ax[1].set_title("상체 숙임: 조건 사이 차이는 작음")
+    fig.legend(*ax[0].get_legend_handles_labels(), loc="lower center", ncol=3, frameon=False)
+    fig.tight_layout(rect=(0, 0.1, 1, 1))
     fig.savefig(out / "fig_compare.png", dpi=200, facecolor="white")
     plt.close(fig)
 
@@ -178,7 +191,7 @@ def fig_trial(df: pd.DataFrame, prof: Profile, out: Path, cfg: Config = Config()
     ax[2].plot(t, log["tau_cmd_l"], c="k", lw=1.2, label="최종 신전 토크 (왼쪽)")
     ax[2].set_ylabel("Nm")
     ax[2].set_xlabel("시간 (s)")
-    colors = {Phase.DESCENT: "#f6e7c1", Phase.DEEP: "#f4c7c3", Phase.SEATED: "#e3e3e3"}
+    colors = PHASE_COLOR
     names = {Phase.DESCENT: "DESCENT", Phase.DEEP: "DEEP", Phase.SEATED: "SEATED"}
     for ph, col in colors.items():
         on = (log["phase"] == ph).to_numpy()
@@ -200,8 +213,10 @@ def main():
     ap.add_argument("--real", default="data/real/S01", help="preprocess_h10.py로 만든 실측 폴더")
     ap.add_argument("--sim", default="data/sim/P01", help="실측 기반 시뮬레이션 참가자 폴더")
     ap.add_argument("--out", default="poster/figs")
+    ap.add_argument("--palette", choices=["poster", "slides"], default="poster")
     ap.add_argument("--highlight", type=int, default=5, help="실측에서 강조할 시행 번호")
     args = ap.parse_args()
+    use_palette(args.palette)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     fig_posture(out)

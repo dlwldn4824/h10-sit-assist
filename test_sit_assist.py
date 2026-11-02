@@ -24,9 +24,9 @@ def profile(calib):
     return Profile.from_trials(calib)
 
 
-def sit(person, profile, chair, fatigue, shadow, seed=3):
+def sit(person, profile, chair, weakness, shadow, seed=3):
     ctrl = SitAssistController(profile, shadow=shadow)
-    return simulate_sit(np.random.default_rng(seed), person, chair, fatigue, ctrl)
+    return simulate_sit(np.random.default_rng(seed), person, chair, weakness, ctrl)
 
 
 def test_profile_shape(profile):
@@ -65,16 +65,18 @@ def test_low_chair_enters_deep(person, profile):
 
 def test_shadow_mode_logs_but_outputs_nothing(person, profile):
     df = sit(person, profile, "low", 1.0, shadow=True)
-    assert df[["tau_cmd_l", "tau_cmd_r"]].max().max() > 5     # 계산은 했지만
+    assert df.tau_brake.max() > 1                               # 제동을 계산은 했지만
     replay = run_trial(df, profile, shadow=True)                # 같은 결과가 재현됨
-    assert np.allclose(replay.tau_cmd_l, df.tau_cmd_l, atol=1e-3)
+    assert np.allclose(replay.tau_cmd_l, df.tau_cmd_l, atol=0.01)   # 저장 시 입력 반올림 오차
 
 
-def test_fatigue_flags_upright_posture(person, profile):
-    normal = trial_metrics(sit(person, profile, "low", 0.0, shadow=True))
-    tired = trial_metrics(sit(person, profile, "low", 1.0, shadow=True))
-    assert tired["peak_lean"] < normal["peak_lean"] - 8
-    assert tired["upright_pct"] > 20 and normal["upright_pct"] < 5
+def test_less_trunk_lean_flags_upright(profile, calib):
+    df = calib[0]
+    upright = df.copy()
+    base = df.trunk_deg.iloc[:50].mean()
+    upright["trunk_deg"] = base + (df.trunk_deg - base) * 0.4      # 평소보다 상체를 60% 덜 숙임
+    assert (run_trial(df, profile).posture == 0).all()
+    assert (run_trial(upright, profile).posture == 1).any()
 
 
 def test_adaptive_restores_trunk_lean(person, profile):
