@@ -184,6 +184,7 @@ def fig_terms(out: Path):
 # ---------------------------------------------------------------- 1-3. 근육 위치 (착석 단계 + 확대 상자)
 
 MUSCLE, MUSCLE_DARK, SKIN, TENDON = "#d9644f", "#a8412f", "#efe3d6", "#f7f2ea"
+ANATOMY: dict = {}      # {"glute": 경로, "ham": 경로} 주면 확대 상자에 실제 해부 이미지를 쓴다 (저작권 자료라 저장소에는 없음)
 
 
 def _spindle(ax, cx, cy, length, width, angle, fibers=7, z=3):
@@ -214,7 +215,18 @@ def _inset(fig, rect, kind, title):
     ax.axis("off")
     ax.add_patch(FancyBboxPatch((0.02, 0.02), 0.96, 0.96, boxstyle="round,pad=0,rounding_size=0.08",
                                 fc="#f4f5f4", ec=WINE, lw=2.5, transform=ax.transAxes, zorder=0))
-    if kind == "glute":       # 뒤에서 본 엉덩이: 엉덩이 실루엣 위에 큰 대둔근
+    if kind in ANATOMY:       # 해부 이미지: 비율을 지키며 상자 안에 맞춘다
+        im = plt.imread(str(ANATOMY[kind]))
+        h, w = im.shape[:2]
+        bw, bh = rect[2] * fig.get_figwidth(), rect[3] * fig.get_figheight()
+        ar = (w / h) / (bw / bh)
+        iw, ih = (0.92, 0.92 / ar) if ar > 1 else (0.92 * ar, 0.92)
+        art = ax.imshow(im, extent=(0.5 - iw / 2, 0.5 + iw / 2, 0.5 - ih / 2, 0.5 + ih / 2), zorder=1, aspect="auto")
+        clip = FancyBboxPatch((0.04, 0.04), 0.92, 0.92, boxstyle="round,pad=0,rounding_size=0.07",
+                              transform=ax.transAxes, fc="none", ec="none")
+        ax.add_patch(clip)
+        art.set_clip_path(clip)
+    elif kind == "glute":     # 뒤에서 본 엉덩이: 엉덩이 실루엣 위에 큰 대둔근
         th = np.linspace(0, 2 * np.pi, 100)
         ax.fill(0.5 + 0.36 * np.cos(th), 0.52 + 0.34 * np.sin(th), color=SKIN, zorder=1)
         ax.fill([0.22, 0.78, 0.7, 0.3], [0.3, 0.3, 0.02, 0.02], color=SKIN, zorder=1)
@@ -408,9 +420,14 @@ def main():
     ap.add_argument("--sim", default="data/sim/P01", help="실측 기반 시뮬레이션 참가자 폴더")
     ap.add_argument("--out", default="poster/figs")
     ap.add_argument("--palette", choices=["poster", "slides"], default="poster")
+    ap.add_argument("--anatomy", help="glute.png, hamstring.png가 있는 폴더 (없으면 직접 그린 근육 사용)")
     ap.add_argument("--highlight", type=int, default=5, help="실측에서 강조할 시행 번호")
     args = ap.parse_args()
     use_palette(args.palette)
+    if args.anatomy:
+        for kind, name in (("glute", "glute.png"), ("ham", "hamstring.png")):
+            if (Path(args.anatomy) / name).exists():
+                ANATOMY[kind] = Path(args.anatomy) / name
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     fig_posture(out)
