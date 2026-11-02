@@ -34,6 +34,7 @@ def test_profile_shape(profile):
     assert 60 < profile.contact_mean < 80
     assert max(profile.mu_l) > 40                  # 중간에 가장 빠름
     assert profile.mu_l[-1] < max(profile.mu_l)    # 의자 근처에서 느려짐
+    assert profile.lean_mu is not None and max(profile.lean_mu) > 25   # 중간에 상체를 숙임
 
 
 def test_profile_save_load(profile, tmp_path):
@@ -45,6 +46,7 @@ def test_normal_sitting_rarely_brakes(calib):
     loo = calib_loo(calib)
     assert loo.triggered.mean() <= 0.2
     assert loo.deep.sum() <= 1                  # 평소 착석 각도 +2SD라 가끔은 넘을 수 있음
+    assert loo.upright.sum() <= 1
 
 
 def test_standing_still_no_torque(profile):
@@ -68,6 +70,25 @@ def test_shadow_mode_logs_but_outputs_nothing(person, profile):
     assert np.allclose(replay.tau_cmd_l, df.tau_cmd_l, atol=1e-3)
 
 
+def test_fatigue_flags_upright_posture(person, profile):
+    normal = trial_metrics(sit(person, profile, "low", 0.0, shadow=True))
+    tired = trial_metrics(sit(person, profile, "low", 1.0, shadow=True))
+    assert tired["peak_lean"] < normal["peak_lean"] - 8
+    assert tired["upright_pct"] > 20 and normal["upright_pct"] < 5
+
+
+def test_adaptive_restores_trunk_lean(person, profile):
+    off = trial_metrics(sit(person, profile, "low", 1.0, shadow=True))
+    on = trial_metrics(sit(person, profile, "low", 1.0, shadow=False))
+    assert on["peak_lean"] > off["peak_lean"]
+
+
+def test_without_waist_imu_still_brakes(person, profile, calib):
+    df = sit(person, profile, "low", 1.0, shadow=True).drop(columns=["trunk_deg"])
+    log = run_trial(df, profile, shadow=True)
+    assert log.tau_support.max() == 0 and log.tau_brake.max() > 5
+
+
 def test_adaptive_reduces_fast_descent(person, profile):
     off = trial_metrics(sit(person, profile, "low", 1.0, shadow=True))
     on = trial_metrics(sit(person, profile, "low", 1.0, shadow=False))
@@ -86,7 +107,8 @@ def test_torque_released_after_seated(person, profile):
 def test_standing_up_gets_no_torque(person, profile, calib):
     # 앉아 있다가 일어서는 동작 = 착석 시행을 시간 역순으로
     df = calib[0]
-    rev = pd.DataFrame({"time_s": df.time_s, "hip_l_deg": df.hip_l_deg[::-1].to_numpy(),
-                        "hip_r_deg": df.hip_r_deg[::-1].to_numpy()})
+    rev = pd.DataFrame({"time_s": df.time_s, "thigh_l_deg": df.thigh_l_deg[::-1].to_numpy(),
+                        "thigh_r_deg": df.thigh_r_deg[::-1].to_numpy(),
+                        "trunk_deg": df.trunk_deg[::-1].to_numpy()})
     log = run_trial(rev, profile, shadow=True)
     assert log[["tau_cmd_l", "tau_cmd_r"]].max().max() == 0

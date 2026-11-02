@@ -32,10 +32,11 @@ def main():
     print(f"평소 착석 각도 Δθ {prof.contact_mean:.1f} ± {prof.contact_sd:.1f} deg, "
           f"DEEP 기준 {prof.deep_threshold(cfg):.1f} deg, 급가속 기준 {prof.alpha_max:.0f} deg/s²\n")
     print(pd.DataFrame({"Δθ(deg)": prof.centers, "왼쪽 평균": prof.mu_l, "왼쪽 SD": prof.sd_l,
-                        "오른쪽 평균": prof.mu_r, "오른쪽 SD": prof.sd_r}).round(1).to_string(index=False))
+                        "오른쪽 평균": prof.mu_r, "오른쪽 SD": prof.sd_r,
+                        "상체 숙임": prof.lean_mu or None}).round(1).to_string(index=False))
 
     loo = calib_loo(calib, cfg)
-    print(f"\n정상 착석 leave-one-out: 제동 켜짐 {loo.triggered.sum()}/{len(loo)}회, "
+    print(f"\n정상 착석 leave-one-out: 제동 켜짐 {loo.triggered.sum()}/{len(loo)}회, UPRIGHT 오감지 {loo.upright.sum()}회, "
           f"강한 제동 {loo.strong.sum()}회, DEEP 오감지 {loo.deep.sum()}회")
     if loo.triggered.mean() > 0.2:
         print("[주의] 정상 착석에서도 제동이 자주 켜집니다. 착석 지시를 일정하게 했는지 확인하고, "

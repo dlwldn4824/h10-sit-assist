@@ -23,25 +23,32 @@ from sit_assist import Config, Phase, Profile, run_trial
 
 CONDITION_NAMES = {1: "Normal", 2: "Fatigue + OFF", 3: "Fatigue + Adaptive"}
 TRIAL_RE = re.compile(r"cond(\d+)_rep(\d+)\.csv")
-TRIGGER_NM = 1.0        # 계산된 토크가 이보다 크면 '제동이 켜졌다'
-METRICS = ["peak_vel", "peak_acc", "rms_jerk", "ldlj", "contact_vel", "descent_time"]
-METRIC_NAMES = {"peak_vel": "최대 굴곡 속도 (deg/s)", "peak_acc": "최대 각가속도 (deg/s²)",
+TRIGGER_NM = 1.0        # 계산된 제동 토크가 이보다 크면 '제동이 켜졌다'
+METRICS = ["peak_vel", "peak_acc", "rms_jerk", "ldlj", "contact_vel", "descent_time", "peak_lean"]
+METRIC_NAMES = {"peak_vel": "최대 허벅지 굴곡 속도 (deg/s)", "peak_acc": "최대 각가속도 (deg/s²)",
                 "rms_jerk": "RMS jerk (deg/s³)", "ldlj": "LDLJ (클수록 부드러움)",
-                "contact_vel": "착석 순간 속도 (deg/s)", "descent_time": "착석 시간 (s)"}
+                "contact_vel": "착석 순간 속도 (deg/s)", "descent_time": "착석 시간 (s)",
+                "peak_lean": "최대 상체 숙임 (deg)"}
+BETTER = {"peak_vel": -1, "peak_acc": -1, "rms_jerk": -1, "ldlj": 1,
+          "contact_vel": -1, "descent_time": 0, "peak_lean": 1}
 
 
 # ---------------------------------------------------------------- 지표
 
 def offline_kinematics(df: pd.DataFrame, fs: float = 100.0) -> dict:
-    """양쪽 평균 굴곡 각도의 속도·가속도·jerk (양방향 필터라 지연 없음)."""
+    """양쪽 평균 허벅지 각도의 속도·가속도·jerk, 상체 숙임 (양방향 필터라 지연 없음)."""
     sos6 = butter(4, 6.0 / (fs / 2), output="sos")
     sos4 = butter(4, 4.0 / (fs / 2), output="sos")
-    th = sosfiltfilt(sos6, df[["hip_l_deg", "hip_r_deg"]].to_numpy(dtype=float), axis=0)
+    th = sosfiltfilt(sos6, df[["thigh_l_deg", "thigh_r_deg"]].to_numpy(dtype=float), axis=0)
     w = np.gradient(th, 1 / fs, axis=0)
     acc = sosfiltfilt(sos4, np.gradient(w.mean(axis=1), 1 / fs))
     jerk = sosfiltfilt(sos4, np.gradient(acc, 1 / fs))
+    lean = None
+    if "trunk_deg" in df:
+        trunk = sosfiltfilt(sos4, df["trunk_deg"].to_numpy(dtype=float))
+        lean = trunk - trunk[: int(0.5 * fs)].mean()       # 처음 0.5초(서 있음) 대비
     return {"t": df["time_s"].to_numpy(dtype=float), "w": w, "wm": w.mean(axis=1),
-            "acc": acc, "jerk": jerk}
+            "acc": acc, "jerk": jerk, "lean": lean}
 
 
 def descent_window(k: dict, seat: np.ndarray | None, cfg: Config = Config()) -> tuple[int, int]:
@@ -72,13 +79,19 @@ def trial_metrics(df: pd.DataFrame, cfg: Config = Config()) -> dict:
            # log dimensionless jerk: 시간·속도 크기에 상관없이 매끄러움을 비교하는 지표
            "ldlj": float(-np.log(dur ** 3 / v_peak ** 2 * np.sum(k["jerk"][sl] ** 2) / cfg.fs)),
            "contact_vel": k["wm"][max(e - 2, s)],
-           "descent_time": dur}
+           "descent_time": dur,
+           "peak_lean": k["lean"][sl].max() if k["lean"] is not None else np.nan}
     if {"tau_cmd_l", "tau_cmd_r"} <= set(df.columns):
         tau = df[["tau_cmd_l", "tau_cmd_r"]].to_numpy(dtype=float).max(axis=1)
         out["peak_tau"] = tau.max()
         out["assist_time"] = np.sum(tau > TRIGGER_NM) / cfg.fs
+    if "tau_brake" in df:
+        out["brake_time"] = np.sum(df["tau_brake"] > TRIGGER_NM) / cfg.fs
     if "phase" in df:
         out["deep"] = bool((df["phase"] == Phase.DEEP).any())
+    if "posture" in df:     # 내려가는 동안 UPRIGHT로 판단된 시간 비율
+        moving = df["phase"].isin([Phase.DESCENT, Phase.DEEP])
+        out["upright_pct"] = 100 * float((df.loc[moving, "posture"] == 1).mean()) if moving.any() else 0.0
     return out
 
 
@@ -100,10 +113,11 @@ def calib_loo(calib: list[pd.DataFrame], cfg: Config = Config()) -> pd.DataFrame
     for i, df in enumerate(calib):
         prof = Profile.from_trials(calib[:i] + calib[i + 1:], cfg)
         log = run_trial(df, prof, cfg, shadow=True)
-        tau = log[["tau_cmd_l", "tau_cmd_r"]].max(axis=1)
-        rows.append({"rep": i + 1, "peak_tau": tau.max(), "triggered": tau.max() > TRIGGER_NM,
+        brake = log["tau_brake"]
+        rows.append({"rep": i + 1, "peak_brake": brake.max(), "triggered": brake.max() > TRIGGER_NM,
                      "strong": bool((log["level"] == 2).any()),
-                     "deep": bool((log["phase"] == Phase.DEEP).any())})
+                     "deep": bool((log["phase"] == Phase.DEEP).any()),
+                     "upright": bool((log["posture"] == 1).any())})
     return pd.DataFrame(rows)
 
 
@@ -115,20 +129,27 @@ def plot_trial(df: pd.DataFrame, prof: Profile, title: str, path: Path, cfg: Con
     if {"tau_cmd_l", "tau_cmd_r"} <= set(df.columns):     # 실제로 기록된 토크가 있으면 그것을 그린다
         log[["tau_cmd_l", "tau_cmd_r"]] = df[["tau_cmd_l", "tau_cmd_r"]].to_numpy()
     t = log["time_s"]
-    fig, ax = plt.subplots(3, 1, figsize=(9, 8), sharex=True)
+    fig, ax = plt.subplots(4, 1, figsize=(9, 10), sharex=True)
     ax[0].plot(t, log["dtheta_l"], label="left")
     ax[0].plot(t, log["dtheta_r"], label="right")
     ax[0].axhline(prof.contact_mean, ls="--", c="gray", lw=1, label="usual seat angle")
     ax[0].axhline(prof.deep_threshold(cfg), ls=":", c="red", lw=1, label="DEEP threshold")
-    ax[0].set_ylabel("hip flexion Δθ (deg)")
+    ax[0].set_ylabel("thigh flexion Δθ (deg)")
     ax[1].plot(t, log["omega_l"], label="ω left")
     m = log["omega_ref_l"] > 0
     ax[1].plot(t[m], log["omega_ref_l"][m], c="k", lw=1, label="personal reference")
     ax[1].set_ylabel("ω (deg/s)")
-    ax[2].plot(t, log["tau_cmd_l"], label="τ left")
-    ax[2].plot(t, log["tau_cmd_r"], label="τ right")
-    ax[2].set_ylabel("extension torque (Nm)")
-    ax[2].set_xlabel("time (s)")
+    ax[2].plot(t, log["lean"], c="tab:purple", label="trunk lean")
+    m = log["lean_ref"].notna()
+    ax[2].plot(t[m], log["lean_ref"][m], c="k", lw=1, label="personal reference")
+    up = (log["posture"] == 1).to_numpy()
+    ax[2].scatter(t[up], log["lean"][up], s=4, c="red", label="UPRIGHT", zorder=3)
+    ax[2].set_ylabel("trunk lean (deg)")
+    ax[3].plot(t, log["tau_cmd_l"], label="τ total left")
+    ax[3].plot(t, log["tau_support"], ls="--", c="tab:purple", lw=1, label="τ trunk support (calc)")
+    ax[3].plot(t, log["tau_brake"], ls=":", c="tab:red", lw=1, label="τ brake (calc)")
+    ax[3].set_ylabel("extension torque (Nm)")
+    ax[3].set_xlabel("time (s)")
     for a in ax:
         for ph, color in ((Phase.DEEP, "red"), (Phase.SEATED, "gray")):
             on = (log["phase"] == ph).to_numpy()
@@ -148,23 +169,23 @@ def plot_compare(p: dict, prof: Profile, pid: str, path: Path, cfg: Config = Con
     colors = {1: "tab:green", 2: "tab:red", 3: "tab:blue"}
     for df in p["calib"]:
         k = offline_kinematics(df, cfg.fs)
-        s, e = descent_window(k, df.get("seat", pd.Series()).to_numpy(dtype=float) if "seat" in df else None, cfg)
-        d = df[["hip_l_deg", "hip_r_deg"]].mean(axis=1).to_numpy()
+        s, e = descent_window(k, df["seat"].to_numpy(dtype=float) if "seat" in df else None, cfg)
+        d = df[["thigh_l_deg", "thigh_r_deg"]].mean(axis=1).to_numpy()
         ax.plot(d[s:e] - d[s], k["wm"][s:e], c="gray", lw=0.7, alpha=0.6)
     seen = set()
     for tr in p["trials"]:
         df = tr["df"]
         k = offline_kinematics(df, cfg.fs)
         s, e = descent_window(k, df["seat"].to_numpy(dtype=float) if "seat" in df else None, cfg)
-        d = df[["hip_l_deg", "hip_r_deg"]].mean(axis=1).to_numpy()
+        d = df[["thigh_l_deg", "thigh_r_deg"]].mean(axis=1).to_numpy()
         label = None if tr["cond"] in seen else CONDITION_NAMES.get(tr["cond"], tr["cond"])
         seen.add(tr["cond"])
         ax.plot(d[s:e] - d[s], k["wm"][s:e], c=colors.get(tr["cond"], "k"), lw=1, label=label)
     ax.axvline(prof.contact_mean, ls="--", c="gray", lw=1)
     ax.axvline(prof.deep_threshold(cfg), ls=":", c="red", lw=1)
     ax.text(prof.contact_mean, ax.get_ylim()[1] * 0.95, " usual seat", fontsize=8)
-    ax.set_xlabel("hip flexion from standing Δθ (deg)")
-    ax.set_ylabel("hip flexion velocity (deg/s)")
+    ax.set_xlabel("thigh flexion from standing Δθ (deg)")
+    ax.set_ylabel("thigh flexion velocity (deg/s)")
     ax.set_title(f"{pid}: calibration (gray, standard chair) vs low-chair trials")
     ax.legend()
     fig.tight_layout()
@@ -236,19 +257,22 @@ def main():
         b = per[per.cond == 3].set_index("participant")[METRICS]
         change = (b - a) / a.abs() * 100
         lines += ["", "Fatigue + Adaptive vs Fatigue + OFF (참가자별 변화율 평균, 좋아진 사람 수)"]
-        better = {"peak_vel": -1, "peak_acc": -1, "rms_jerk": -1, "ldlj": 1,
-                  "contact_vel": -1, "descent_time": 0}
         for k in METRICS:
-            sign = better[k]
+            sign = BETTER[k]
             note = "" if sign == 0 else f", 좋아진 사람 {int((np.sign(b[k] - a[k]) == sign).sum())}/{len(a)}"
             lines.append(f"- {METRIC_NAMES[k]}: {change[k].mean():+.1f}%{note}")
 
+    if "upright_pct" in m:
+        lines += ["", "내려가는 동안 UPRIGHT(상체를 덜 숙임) 판단 시간 비율: "
+                  + ", ".join(f"{CONDITION_NAMES[c]} {m[m.cond == c].upright_pct.mean():.0f}%"
+                              for c in sorted(m.cond.unique()))]
     if "deep" in m:
         lines += ["", "낮은 의자에서 DEEP(평소 착석 각도 초과) 감지율: "
                   + ", ".join(f"{CONDITION_NAMES[c]} {m[m.cond == c].deep.mean() * 100:.0f}%"
                               for c in sorted(m.cond.unique()))]
     lines += ["", f"정상 착석(calib, leave-one-out) 제동 켜짐 {loo.triggered.mean() * 100:.1f}%, "
-              f"강한 제동 {loo.strong.mean() * 100:.1f}%, DEEP 오감지 {loo.deep.mean() * 100:.1f}% "
+              f"강한 제동 {loo.strong.mean() * 100:.1f}%, DEEP 오감지 {loo.deep.mean() * 100:.1f}%, "
+              f"UPRIGHT 오감지 {loo.upright.mean() * 100:.1f}% "
               f"({len(loo)}회)"]
     report = "\n".join(lines)
     (out / "report.md").write_text(report + "\n")

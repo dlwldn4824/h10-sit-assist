@@ -1,0 +1,299 @@
+"""매치업 포스터 양식(90×120cm)에 착석 보조 알고리즘 포스터를 만든다.
+
+양식 파일의 상단 제목줄·제목 표·테두리·하단 로고만 남기고 나머지는 새로 채운다.
+숫자는 results/metrics.csv에서 읽으므로 데이터가 바뀌면 다시 돌리면 된다.
+
+    python poster/make_figures.py
+    python poster/make_poster.py --template "<양식>.pptx" --out poster/착석보조_포스터.pptx
+"""
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import pandas as pd
+from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.util import Cm, Pt
+
+HERE = Path(__file__).resolve().parent
+WINE = RGBColor(0x77, 0x22, 0x35)
+PINK = RGBColor(0xF6, 0xE6, 0xE9)
+GRAY = RGBColor(0x55, 0x55, 0x55)
+WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+BLACK = RGBColor(0, 0, 0)
+KEEP_IDS = {2, 3, 7, 10}          # 상단 제목줄, 로고 묶음, 제목 표, 테두리
+
+TITLE = "안전한 착석을 위한 H10 적응형 하강 제동·자세 보조"
+TEAM = "팀명 / ○○○"
+MEMBERS = "팀원 / 이지우, 이지석, 박수민"
+
+
+# ---------------------------------------------------------------- 도형 도우미
+
+def _runs(p, parts, size, bold=False, color=BLACK):
+    """parts: 문자열 또는 (문자열, {size, bold, color}) 목록."""
+    if isinstance(parts, str):
+        parts = [parts]
+    for part in parts:
+        text, opt = (part, {}) if isinstance(part, str) else part
+        r = p.add_run()
+        r.text = text
+        r.font.size = Pt(opt.get("size", size))
+        r.font.bold = opt.get("bold", bold)
+        r.font.color.rgb = opt.get("color", color)
+
+
+def text(slide, x, y, w, h, paras, size=28, bold=False, color=BLACK, align=PP_ALIGN.LEFT,
+         space_after=6, anchor=MSO_ANCHOR.TOP):
+    """paras: 문단 목록. 문단은 문자열 / (문자열, 옵션) 목록 / {"t":..., "size":..., ...}."""
+    tb = slide.shapes.add_textbox(Cm(x), Cm(y), Cm(w), Cm(h))
+    tf = tb.text_frame
+    tf.word_wrap = True
+    tf.vertical_anchor = anchor
+    tf.margin_left = tf.margin_right = Cm(0.2)
+    tf.margin_top = tf.margin_bottom = Cm(0.1)
+    for i, para in enumerate(paras):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        opt = para if isinstance(para, dict) else {"t": para}
+        p.alignment = opt.get("align", align)
+        p.space_after = Pt(opt.get("space_after", space_after))
+        _runs(p, opt["t"], opt.get("size", size), opt.get("bold", bold), opt.get("color", color))
+    return tb
+
+
+def box(slide, x, y, w, h, paras, fill=PINK, line=WINE, size=28, bold=False, color=BLACK,
+        shape=MSO_SHAPE.ROUNDED_RECTANGLE, align=PP_ALIGN.CENTER):
+    s = slide.shapes.add_shape(shape, Cm(x), Cm(y), Cm(w), Cm(h))
+    s.fill.solid()
+    s.fill.fore_color.rgb = fill
+    if line is None:
+        s.line.fill.background()
+    else:
+        s.line.color.rgb = line
+        s.line.width = Pt(2.5)
+    s.shadow.inherit = False
+    if shape == MSO_SHAPE.ROUNDED_RECTANGLE:
+        s.adjustments[0] = 0.18
+    tf = s.text_frame
+    tf.word_wrap = True
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    tf.margin_left = tf.margin_right = Cm(0.3)
+    for i, para in enumerate(paras):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        p.alignment = align
+        _runs(p, para, size, bold, color)
+    return s
+
+
+def section(slide, x, y, w, title):
+    box(slide, x, y, w, 2.9, [title], fill=WINE, line=None, size=54, bold=True, color=WHITE,
+        shape=MSO_SHAPE.RECTANGLE)
+
+
+def arrow(slide, x, y, w=1.2, h=1.4):
+    a = slide.shapes.add_shape(MSO_SHAPE.DOWN_ARROW, Cm(x), Cm(y), Cm(w), Cm(h))
+    a.fill.solid()
+    a.fill.fore_color.rgb = WINE
+    a.line.fill.background()
+    a.shadow.inherit = False
+
+
+def picture(slide, path, x, y, w):
+    return slide.shapes.add_picture(str(path), Cm(x), Cm(y), width=Cm(w))
+
+
+def table(slide, x, y, w, rows, col_w, row_h, size=24, highlight_last=False):
+    shp = slide.shapes.add_table(len(rows), len(rows[0]), Cm(x), Cm(y), Cm(w), Cm(row_h * len(rows)))
+    tb = shp.table
+    for j, cw in enumerate(col_w):
+        tb.columns[j].width = Cm(cw)
+    for i, row in enumerate(rows):
+        tb.rows[i].height = Cm(row_h)
+        for j, val in enumerate(row):
+            cell = tb.cell(i, j)
+            head = i == 0
+            hl = highlight_last and i == len(rows) - 1
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = WINE if head else (PINK if hl else (WHITE if i % 2 else RGBColor(0xF4, 0xF4, 0xF4)))
+            cell.margin_left = cell.margin_right = Cm(0.15)
+            cell.margin_top = cell.margin_bottom = Cm(0.05)
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            p = cell.text_frame.paragraphs[0]
+            p.alignment = PP_ALIGN.LEFT if j == 0 else PP_ALIGN.CENTER
+            _runs(p, str(val), size, bold=head or hl, color=WHITE if head else BLACK)
+    return tb
+
+
+def set_paragraph(p, value):
+    """첫 run의 서식을 살려 문단 글자만 바꾼다."""
+    runs = p.runs
+    runs[0].text = value
+    for r in runs[1:]:
+        r._r.getparent().remove(r._r)
+
+
+# ---------------------------------------------------------------- 결과 숫자
+
+def result_rows(metrics_csv: Path) -> list[list[str]]:
+    m = pd.read_csv(metrics_csv)
+    per = m.groupby(["participant", "cond"]).mean(numeric_only=True).reset_index()
+    mean = per.groupby("cond").mean(numeric_only=True)
+    items = [("최대 허벅지 굴곡 속도 (°/s)", "peak_vel", 1), ("착석 순간 속도 (°/s)", "contact_vel", 1),
+             ("RMS jerk (°/s³)", "rms_jerk", 0), ("최대 상체 숙임 (°)", "peak_lean", 1),
+             ("상체 덜 숙임 판단 시간 (%)", "upright_pct", 0), ("착석 시간 (s)", "descent_time", 2)]
+    rows = [["지표", "Normal", "피로 + OFF", "피로 + H10", "변화"]]
+    for name, k, nd in items:
+        off, on = mean.loc[2, k], mean.loc[3, k]
+        rows.append([name] + [f"{mean.loc[c, k]:.{nd}f}" for c in (1, 2, 3)] + [f"{(on - off) / off * 100:+.0f}%"])
+    return rows
+
+
+# ---------------------------------------------------------------- 포스터
+
+def build(template: Path, out: Path, figs: Path, metrics_csv: Path):
+    prs = Presentation(str(template))
+    s = prs.slides[0]
+    tree = s.shapes._spTree
+    keep = {sh._element for sh in s.shapes if sh.shape_id in KEEP_IDS}
+    for el in list(tree):          # 수식 개체(mc:AlternateContent)는 shapes에 안 잡혀서 트리에서 직접 지운다
+        tag = el.tag.split("}")[1]
+        if tag not in ("nvGrpSpPr", "grpSpPr") and el not in keep:
+            tree.remove(el)
+
+    # 제목 표: 제목 / (빈 줄) / 교과목명 / 팀명 / 팀원
+    tbl = next(sh for sh in s.shapes if sh.shape_id == 7).table
+    paras = tbl.cell(0, 0).text_frame.paragraphs
+    set_paragraph(paras[0], TITLE)
+    set_paragraph(paras[3], TEAM)
+    set_paragraph(paras[4], MEMBERS)
+
+    L, R, CW = 2.6, 46.8, 40.6
+
+    # 1. 주제 선정 배경 --------------------------------------------------------
+    section(s, L, 18.8, CW, "1. 주제 선정 배경")
+    text(s, L, 22.2, CW, 1.8, ["앉기는 '힘을 빼는 동작'이 아니다"], size=34, bold=True)
+    text(s, L, 24.1, CW, 7.2, [
+        ["의자에 앉을 때 고관절 신전근은 ", ("편심성 수축", {"bold": True}),
+         "으로 몸이 내려가는 속도를 조절하는 ", ("브레이크", {"bold": True}), " 역할을 한다."],
+        ["수술·장기 비사용 후 일상에 복귀한 사용자는 걷기는 가능하지만, 착석 후반부 제동력이 부족해 ",
+         ("의자에 털썩 주저앉기", {"bold": True, "color": WINE}), " 쉽다. 낮은 의자·반복 착석·피로 상황에서 더 심해진다."]])
+    text(s, L, 31.6, CW, 1.8, ["기존 방법은 측정과 개입을 동시에 하지 못한다"], size=34, bold=True)
+    table(s, L, 33.6, CW, [
+        ["방법", "움직임 측정", "즉각 보조", "고관절 직접", "장소 무관"],
+        ["높은 의자 · 팔걸이", "X", "O", "X", "X"],
+        ["지팡이 · 워커", "X", "O", "X", "O"],
+        ["IMU", "O", "X", "X", "O"],
+        ["카메라", "O", "X", "X", "X"],
+        ["H10 (제안)", "O", "O", "O", "O"]],
+        col_w=[11.6, 7.25, 7.25, 7.25, 7.25], row_h=2.0, size=26, highlight_last=True)
+
+    # 2. 생체역학적 관점에서의 문제정의 ----------------------------------------
+    section(s, R, 18.8, CW, "2. 생체역학적 관점에서의 문제정의")
+    text(s, R, 22.2, CW, 1.8, ["어째서 낙상 위험이 생기는가?"], size=34, bold=True)
+    picture(s, figs / "fig_posture.png", R, 24.0, CW)
+    text(s, R, 38.4, CW, 4.4, [
+        ["고관절 신전근은 ", ("① 숙인 상체를 버티고 ② 하강 속도를 제동", {"bold": True}),
+         "한다. 피로하면 둘 다 무너져 상체를 세운 채 빠르게 내려가고, ",
+         ("무게중심이 발 뒤로 빠진다.", {"bold": True, "color": WINE})]])
+    box(s, R, 43.0, CW, 3.3, [["H10 고관절 ", ("신전 토크", {"bold": True}), " 하나로"],
+                              [("상체 지지 + 하강 제동", {"bold": True, "color": WINE}), "을 동시에 보조"]], size=30)
+
+    # 3. 알고리즘 설계 ---------------------------------------------------------
+    section(s, 2.5, 47.8, 84.9, "3. 알고리즘 설계")
+    text(s, L, 51.0, 42.0, 2.0, ["FSM 상태 전이 [STANDING – DESCENT – DEEP – SEATED]"], size=34, bold=True)
+    states = [("STANDING", RGBColor(0x80, 0x80, 0x80), "서 있음 · 기준 자세(허벅지·상체) 갱신"),
+              ("DESCENT", WINE, "개인 기준과 비교 → 상체 지지 + 적응형 제동"),
+              ("DEEP", RGBColor(0xC0, 0x39, 0x4B), "낮은 의자 · 평소 착석 속도까지 감속, 제동 ×1.5"),
+              ("SEATED", RGBColor(0x4A, 0x4A, 0x4A), "토크 0.3 s에 걸쳐 해제 → 일어서면 STANDING")]
+    trans = ["양쪽 허벅지 ω > 5°/s, 0.1 s 유지",
+             "Δθ > 평소 착석 각도 + 2σ, 아직 착석 전",
+             "의자 압력센서 ON 또는 ω < 3°/s, 0.2 s"]
+    y = 53.6
+    for i, (name, col, desc) in enumerate(states):
+        box(s, 3.2, y, 11.0, 2.7, [name], fill=col, line=None, size=30, bold=True, color=WHITE)
+        text(s, 14.8, y, 28.0, 2.7, [desc], size=26, anchor=MSO_ANCHOR.MIDDLE)
+        if i < 3:
+            arrow(s, 8.1, y + 2.85, 1.2, 1.6)
+            text(s, 9.8, y + 2.8, 33.0, 1.7, [[("▶ ", {"color": WINE}), trans[i]]], size=24, color=GRAY,
+                 anchor=MSO_ANCHOR.MIDDLE)
+        y += 4.5
+    text(s, 3.2, y - 0.2, 40.0, 1.5, ["※ 앉다가 다시 일어서면(ω < −5°/s) 즉시 STANDING, 토크 0"], size=22, color=GRAY)
+    text(s, L, 72.8, 42.0, 1.9, ["개인 기준 캘리브레이션 (표준 의자 15회)"], size=32, bold=True)
+    text(s, L, 74.8, 42.0, 7.8, [
+        ["허벅지 각도를 5° 구간으로 나눠 구간별로 저장"],
+        [("• 평균 하강 속도 ω_ref(θ)와 표준편차 σ(θ)", {"bold": True})],
+        [("• 평균 상체 숙임 φ_ref(θ) (허리 IMU)", {"bold": True})],
+        ["• 평소 착석 각도와 평소 최대 각가속도"],
+        ["→ 사람마다 다른 착석 속도·자세를 그대로 기준으로 사용"]], size=26, space_after=4)
+
+    text(s, 46.3, 51.0, 41.5, 2.0, ["보조 토크 = 상체 지지 + 적응형 제동"], size=34, bold=True)
+    eq = [("1. 상체 지지", "τ_s = K_s · sin φ   (K_s = 6 Nm)",
+           "숙인 상체를 버티는 신전근 부담을 덜어 올바른 숙임 자세 유지"),
+          ("2. 적응형 하강 제동", "z = (ω̂ − ω_ref(θ̂)) / σ(θ̂),   τ_b = K·g·max(0, z − 2.5)",
+           "ω̂ = ω + α·0.05 s로 미리 반응 · DEEP / 상체 덜 숙임이면 g = 1.5 · 급가속이면 z ≥ 4"),
+          ("3. 출력 제한", "τ = sat[0, 10 Nm](τ_s + τ_b),   상승 ≤ 60 Nm/s",
+           "두 토크 모두 신전 방향이라 서로 상쇄되지 않음 · 일어설 때는 0")]
+    y = 53.3
+    for head, formula, desc in eq:
+        text(s, 46.8, y, 41.0, 1.6, [head], size=30, bold=True, color=WINE)
+        text(s, 47.6, y + 1.6, 40.0, 1.5, [formula], size=28)
+        text(s, 47.6, y + 3.1, 40.0, 1.5, [desc], size=22, color=GRAY)
+        y += 5.0
+    picture(s, figs / "fig_profile.png", 49.6, 68.5, 35.0)
+    box(s, L, 82.6, 84.8, 3.0,
+        ["\"개인 기준이 이상을 찾고, 상체 지지가 자세를 받치고, 적응형 제동이 속도를 잡는다\""],
+        size=32, bold=True)
+
+    # 4. 작동 검증 ---------------------------------------------------------------
+    section(s, 2.4, 86.7, 46.8, "4. 작동 검증 (시뮬레이션)")
+    picture(s, figs / "fig_trial.png", L, 90.0, 30.6)
+    steps = ["① 숙이기 시작\n→ 상체 지지", "② 덜 숙임 감지\n(UPRIGHT)", "③ 기준 초과 가속\n→ 제동 증가",
+             "④ 낮은 의자 감지\n(DEEP)", "⑤ 착석\n→ 토크 해제"]
+    y = 90.4
+    for i, st in enumerate(steps):
+        box(s, 33.8, y, 15.0, 3.0, st.split("\n"), size=22, bold=i in (1, 3))
+        if i < 4:
+            arrow(s, 40.8, y + 3.05, 1.0, 0.9)
+        y += 4.0
+    text(s, L, 112.4, 46.0, 1.4, ["피로 + Adaptive H10 조건의 한 시행 (낮은 의자). 가짜 데이터: 12명 × 3조건 × 5회"],
+         size=20, color=GRAY)
+
+    # 5. 결과 및 기대 효과 --------------------------------------------------------
+    section(s, 51.2, 86.7, 36.2, "5. 결과 및 기대 효과")
+    table(s, 51.2, 90.0, 36.2, result_rows(metrics_csv), col_w=[13.0, 5.4, 5.8, 5.8, 6.2], row_h=1.3, size=22)
+    text(s, 51.2, 99.3, 36.2, 5.0, [
+        [("① 낙상 위험 동작 완화: ", {"bold": True}), "급하강 · 뒤로 주저앉는 자세 감소"],
+        [("② 의자 높이와 무관: ", {"bold": True}), "착용형 + 낮은 의자 자동 감지"],
+        [("③ 개인 맞춤: ", {"bold": True}), "15회 착석만으로 기준 생성"]], size=24, space_after=2)
+
+    # 6. 한계 및 개선 방안 ---------------------------------------------------------
+    section(s, 51.2, 104.4, 36.2, "6. 한계 및 개선 방안")
+    text(s, 51.2, 107.5, 36.2, 7.0, [
+        [("# 시뮬레이션 단계", {"bold": True})],
+        {"t": "건강한 성인 피로 실험(Normal / 피로+OFF / 피로+H10)으로 검증", "size": 22, "color": GRAY},
+        [("# 낙상 예방은 아직 미검증", {"bold": True})],
+        {"t": "착석 속도 · jerk · 상체 숙임 지표로 주장 범위 한정", "size": 22, "color": GRAY},
+        [("# 상태 피드백 부재", {"bold": True})],
+        {"t": "UPRIGHT · DEEP 판단 시 진동 / LED 알림 추가", "size": 22, "color": GRAY}],
+        size=26, space_after=1)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    prs.save(str(out))
+    print(f"저장: {out}")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--template", required=True)
+    ap.add_argument("--out", default=str(HERE / "착석보조_포스터.pptx"))
+    ap.add_argument("--figs", default=str(HERE / "figs"))
+    ap.add_argument("--metrics", default=str(HERE.parent / "results" / "metrics.csv"))
+    args = ap.parse_args()
+    build(Path(args.template), Path(args.out), Path(args.figs), Path(args.metrics))
+
+
+if __name__ == "__main__":
+    main()
