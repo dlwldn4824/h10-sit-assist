@@ -1,5 +1,6 @@
 """매치업 포스터 양식(90×120cm)에 착석 보조 알고리즘 포스터를 만든다.
 
+그림 중 H10 · 할머니 · 근육 이미지는 Figma 발표 자료에서 받아 poster/assets/에 둔다(저장소 제외).
 양식 파일의 상단 제목줄·제목 표·테두리·하단 로고만 남기고 나머지는 새로 채운다.
 숫자는 results/metrics.csv에서 읽으므로 데이터가 바뀌면 다시 돌리면 된다.
 
@@ -176,7 +177,7 @@ def real_stats(real_dir: Path) -> dict:
 
 # ---------------------------------------------------------------- 포스터
 
-def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Path):
+def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Path, assets: Path):
     st = real_stats(real_dir)
     prs = Presentation(str(template))
     s = prs.slides[0]
@@ -202,35 +203,38 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     # 1. 주제 선정 배경 --------------------------------------------------------
     section(s, L, 18.8, CW, "1. 주제 선정 배경")
     text(s, L, 22.2, CW, 1.8, ["왜 낮은 의자인가?"], size=34, bold=True)
-    text(s, L, 24.0, CW, 7.6, [
-        [("① 더 깊이 굽혀야 한다: ", {"bold": True}), "실측에서 30 cm 의자는 45 cm보다 허벅지가 9° 더 굽혀졌다."],
-        [("② 더 오래, 더 숙여서 버텨야 한다: ", {"bold": True}), "낮을수록 동작이 길고(1.6→2.0초) 더 숙인다.[3]"],
+    text(s, L, 24.0, 31.2, 8.6, [
+        [("① 더 깊이 굽혀야 한다: ", {"bold": True}), "30 cm 의자는 45 cm보다 허벅지가 9° 더 굽혀진다."],
+        [("② 더 오래, 더 숙여서 버텨야 한다: ", {"bold": True}), "낮을수록 길고(1.6→2.0초) 더 숙인다.[3]"],
         [("③ 마지막 순간이 가장 빠르다: ", {"bold": True}),
          ("털썩 주저앉거나 뒤로 넘어지기 쉽다.", {"bold": True, "color": WINE}), "[1]"],
-        [("④ 생활 곳곳에 있다: ", {"bold": True}), "팔걸이 없는 소파 · 좌변기. 손으로 짚기는 보상 전략일 뿐이다.[7]"]], size=27, space_after=6)
-    box(s, L, 31.0, CW, 2.2, [[("타깃: ", {"bold": True}), "착석 제어가 어려운 근감소증 위험 고령자 (AWGS 2019[2]: 5회 의자 일어서기 ≥ 12초)"]],
+        [("④ 생활 곳곳에 있다: ", {"bold": True}), "팔걸이 없는 소파 · 좌변기 (손 짚기는 보상 전략[7])"]], size=24, space_after=14)
+    picture(s, assets / "grandma_sit.png", L + 32.0, 22.0, 8.1)
+    box(s, L, 32.9, CW, 2.0, [[("타깃: ", {"bold": True}), "착석 제어가 어려운 근감소증 위험 고령자 (AWGS 2019[2]: 5회 의자 일어서기 ≥ 12초)"]],
         size=22, align=PP_ALIGN.LEFT)
-    text(s, L, 33.5, CW, 1.6, ["기존 방법은 측정과 개입을 동시에 하지 못한다"], size=30, bold=True)
-    table(s, L, 35.3, CW, [
+    text(s, L, 35.1, CW, 1.6, ["기존 방법은 측정과 개입을 동시에 하지 못한다"], size=30, bold=True)
+    table(s, L, 36.8, CW, [
         ["방법", "움직임 측정", "즉각 보조", "고관절 직접", "장소 무관"],
         ["높은 의자 · 팔걸이", "X", "O", "X", "X"],
         ["지팡이 · 워커", "X", "O", "X", "O"],
         ["IMU", "O", "X", "X", "O"],
         ["카메라", "O", "X", "X", "X"],
         ["H10 (제안)", "O", "O", "O", "O"]],
-        col_w=[11.6, 7.25, 7.25, 7.25, 7.25], row_h=1.8, size=24, highlight_last=True)
+        col_w=[11.6, 7.25, 7.25, 7.25, 7.25], row_h=1.5, size=24, highlight_last=True)
 
     # 2. 생체역학적 관점에서의 문제정의 ----------------------------------------
     section(s, R, 18.8, CW, "2. 생체역학적 관점에서의 문제정의")
     text(s, R, 22.2, CW, 1.8, ["어째서 낙상 위험이 생기는가?"], size=34, bold=True)
-    picture(s, figs / "fig_posture.png", R, 24.0, CW)
+    picture(s, assets / "muscles.png", R + 1.3, 23.9, 38.0)
     text(s, R, 38.4, CW, 4.4, [
         ["고관절 신전근¹은 편심성 수축²으로 ", ("① 숙인 상체를 버티고 ② 하강 속도를 제동", {"bold": True}),
          "한다. 고령자는 상체를 약 10° 덜 숙이고[5], 근력이 약하면 빠르게 내려가며 ",
          ("무게중심이 발 뒤로 빠진다", {"bold": True, "color": WINE}), " (고령자 낙상의 17.6%가 뒤로 주저앉음[6])."]])
-    box(s, R, 43.0, CW, 3.3, [["H10 ", ("신전 토크", {"bold": True}), " 하나로 ",
+    hb = box(s, R, 42.7, CW, 3.7, [["H10 ", ("신전 토크", {"bold": True}), " 하나로 ",
                                ("상체 지지 + 하강 제동", {"bold": True, "color": WINE}), "을 동시에 보조"],
                               ["선행 연구: 하지 착석 보조 시 팔 지지 힘 약 70% 감소[8]"]], size=28)
+    hb.text_frame.margin_left = Cm(4.6)
+    picture(s, assets / "h10.png", R + 0.6, 42.95, 3.3)
 
     # 3. 알고리즘 설계 ---------------------------------------------------------
     section(s, 2.5, 47.8, 84.9, "3. 알고리즘 설계")
@@ -343,10 +347,11 @@ def main():
     ap.add_argument("--template", required=True)
     ap.add_argument("--out", default=str(HERE / "착석보조_포스터.pptx"))
     ap.add_argument("--figs", default=str(HERE / "figs"))
+    ap.add_argument("--assets", default=str(HERE / "assets"))   # 발표 자료 이미지(H10 · 할머니 · 근육), 저장소에 올리지 않음
     ap.add_argument("--metrics", default=str(HERE.parent / "results" / "real" / "chair_metrics.csv"))
     ap.add_argument("--real", default=str(HERE.parent / "data" / "real" / "chair30"))
     args = ap.parse_args()
-    build(Path(args.template), Path(args.out), Path(args.figs), Path(args.metrics), Path(args.real))
+    build(Path(args.template), Path(args.out), Path(args.figs), Path(args.metrics), Path(args.real), Path(args.assets))
 
 
 if __name__ == "__main__":
