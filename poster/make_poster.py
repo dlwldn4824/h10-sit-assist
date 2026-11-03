@@ -33,6 +33,8 @@ BLACK = RGBColor(0, 0, 0)
 KEEP_IDS = {2, 3, 7, 10}          # 상단 제목줄, 로고 묶음, 제목 표, 테두리
 
 TITLE = ("낮은 의자 착석에서 털썩 주저앉음을 줄이는", "H10 적응형 하강 제동 알고리즘")
+TOP = "2025 <H10 Control Algorithm>"
+COURSE = "교과목명 / 제어알고리즘설계및실습(고찬영 교수님)"
 TEAM = "팀명 / KWAI"
 MEMBERS = "팀원 / 이지우, 이지석, 박수민"
 FAST_REP = 5                      # 실측에서 빠르게 앉은 시행 (make_figures.py --highlight와 같게)
@@ -188,6 +190,9 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
         if tag not in ("nvGrpSpPr", "grpSpPr") and el not in keep:
             tree.remove(el)
 
+    top = next(sh for sh in s.shapes if sh.shape_id == 2)      # 상단 제목줄
+    set_paragraph(top.text_frame.paragraphs[0], TOP)
+
     # 제목 표: 제목 / (빈 줄) / 교과목명 / 팀명 / 팀원
     tbl = next(sh for sh in s.shapes if sh.shape_id == 7).table
     paras = tbl.cell(0, 0).text_frame.paragraphs
@@ -195,6 +200,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     paras[1].alignment = paras[0].alignment          # 빈 줄을 제목 둘째 줄로 사용
     paras[1]._p.append(copy.deepcopy(paras[0].runs[0]._r))
     paras[1].runs[0].text = TITLE[1]
+    set_paragraph(paras[2], COURSE)
     set_paragraph(paras[3], TEAM)
     set_paragraph(paras[4], MEMBERS)
 
