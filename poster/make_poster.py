@@ -151,56 +151,67 @@ def table(slide, x, y, w, rows, col_w, row_h, size=24, highlight_last=False):
     return tb
 
 
-def link(slide, pts, color=RGBColor(0x55, 0x55, 0x55)):
+TINT = RGBColor(0xF7, 0xF1, 0xF2)     # 카드 바탕 (발표 자료의 연한 카드와 같은 역할)
+INK = RGBColor(0x1E, 0x1E, 0x1E)
+SUBG = RGBColor(0x5E, 0x5E, 0x5E)
+DARKW = RGBColor(0x55, 0x16, 0x25)
+
+
+def card(slide, x, y, w, h, fill=TINT, radius_cm=0.6):
+    """둥근 카드. 테두리와 그림자 없이 연한 바탕만."""
+    c = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Cm(x), Cm(y), Cm(w), Cm(h))
+    c.adjustments[0] = min(0.5, radius_cm / min(w, h))
+    c.fill.solid()
+    c.fill.fore_color.rgb = fill
+    c.line.fill.background()
+    c.shadow.inherit = False
+    return c
+
+
+def head(slide, x, y, w, num, eyebrow, title, size=40):
+    """발표 자료처럼 작은 영문 라벨 + 굵은 제목."""
+    text(slide, x, y, w, 1.1, [[(f"{num}  {eyebrow}", {"color": WINE})]], size=20, bold=True, space_after=0)
+    text(slide, x, y + 1.0, w, 2.2, [title], size=size, bold=True, color=INK, space_after=0)
+
+
+def stat(slide, x, y, w, h, big, label):
+    card(slide, x, y, w, h)
+    text(slide, x + 0.5, y + 0.3, w - 1.0, 2.8, [big], size=60, bold=True, color=WINE, space_after=0)
+    text(slide, x + 0.5, y + 3.1, w - 1.0, h - 3.2, [label], size=21, color=SUBG, space_after=0)
+
+
+def link(slide, pts, color=WINE):
     """연결선. 마지막 구간 끝에 화살촉."""
     segs = list(zip(pts, pts[1:]))
     for k, ((x1, y1), (x2, y2)) in enumerate(segs):
         c = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Cm(x1), Cm(y1), Cm(x2), Cm(y2))
         c.name = "PIPE link"
         c.line.color.rgb = color
-        c.line.width = Pt(2)
+        c.line.width = Pt(2.5)
         if k == len(segs) - 1:
             ln = c.line._get_or_add_ln()
             ln.append(ln.makeelement(qn("a:tailEnd"), {"type": "triangle", "w": "med", "len": "med"}))
 
 
 def pipeline(slide, y0):
-    """제어 파이프라인 블록도: 측정 → 속도 비교 → 단계 판단 → 두 가지 힘 → H10."""
-    EDGE, DARK, SUB = RGBColor(0xAA, 0xAA, 0xAA), RGBColor(0x55, 0x16, 0x25), RGBColor(0x55, 0x55, 0x55)
-
-    def group(x, w, label):
-        g = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Cm(x), Cm(y0), Cm(w), Cm(7.6))
-        g.fill.solid()
-        g.fill.fore_color.rgb = RGBColor(0xF7, 0xF4, 0xF5)
-        g.line.color.rgb = EDGE
-        g.line.width = Pt(1.5)
-        g.line.dash_style = MSO_LINE.DASH
-        g.shadow.inherit = False
-        text(slide, x + 0.2, y0 + 0.1, w - 0.4, 1.0, [label], size=17, bold=True, color=SUB, space_after=0)
-
-    def block(x, y, w, h, head, body, fill=WHITE, line=EDGE, hc=BLACK, bc=SUB):
-        box(slide, x, y, w, h, [[(head, {"bold": True, "color": hc, "size": 21})], [(body, {"color": bc, "size": 16})]],
-            fill=fill, line=line, shape=MSO_SHAPE.RECTANGLE)
-
-    group(2.6, 17.6, "측정")
-    block(3.2, y0 + 1.1, 16.4, 1.9, "H10 센서", "허벅지 IMU · 고관절 엔코더")
-    block(3.2, y0 + 3.2, 16.4, 1.9, "잡음 제거 · 100 Hz", "빠른 떨림을 걸러 냄")
-    block(3.2, y0 + 5.3, 16.4, 1.9, "자세 계산", "허벅지 굽힘 · 속도 · 상체 숙임")
-    block(23.2, y0, 13.6, 2.4, "평소 기준값", "보조 없이 앉은 10회")
-    block(23.2, y0 + 3.6, 13.6, 4.0, "속도 비교", "같은 자세의 평소 속도보다\n얼마나 빠른가", fill=WINE, line=None,
-          hc=WHITE, bc=PINK)
-    block(39.8, y0 + 3.6, 13.6, 4.0, "단계 판단", "서 있음 · 앉는 중\n낮은 의자 · 앉음", fill=DARK, line=None,
-          hc=WHITE, bc=PINK)
-    group(56.4, 15.6, "출력")
-    block(57.0, y0 + 1.1, 14.4, 2.9, "상체 지지", "숙인 상체를 받친다", line=WINE, hc=WINE)
-    block(57.0, y0 + 4.4, 14.4, 2.9, "하강 제동", "평소보다 빠를 때만 건다", line=WINE, hc=WINE)
-    block(75.0, y0 + 1.6, 12.4, 4.4, "H10 보조 토크", "두 힘의 합 · 최대 10 Nm\n천천히 켜고 앉으면 푼다", line=WINE, hc=WINE,
-          bc=BLACK)
-    link(slide, [(20.2, y0 + 5.6), (23.2, y0 + 5.6)])
-    link(slide, [(30.0, y0 + 2.4), (30.0, y0 + 3.6)])
-    link(slide, [(36.8, y0 + 5.6), (39.8, y0 + 5.6)])
-    link(slide, [(53.4, y0 + 5.6), (56.4, y0 + 5.6)])
-    link(slide, [(72.0, y0 + 3.8), (75.0, y0 + 3.8)])
+    """제어 파이프라인: 발표 자료처럼 STEP 카드 여섯 개를 가로로 잇는다."""
+    card(slide, 2.6, y0, 84.8, 8.8)
+    steps = [("STEP 1", "H10 센서", "허벅지 IMU와 고관절 엔코더를 100 Hz로 읽는다", None),
+             ("STEP 2", "자세 계산", "잡음을 걸러 허벅지 각도·속도와 상체 숙임을 낸다", None),
+             ("STEP 3", "평소와 비교", "같은 각도에서 평소보다 얼마나 빠른지 본다", WINE),
+             ("STEP 4", "단계 판단", "서 있음 → 앉는 중 → 낮은 의자 → 앉음", None),
+             ("STEP 5", "두 가지 힘", "상체 지지 + 빠를 때만 하강 제동", None),
+             ("OUTPUT", "H10 보조 토크", "최대 10 Nm, 천천히 켜고 앉으면 푼다", DARKW)]
+    w, gap = 11.4, 2.88
+    for i, (lab, title, desc, fill) in enumerate(steps):
+        x = 3.6 + i * (w + gap)
+        card(slide, x, y0 + 1.1, w, 6.6, fill=fill or WHITE, radius_cm=0.4)
+        hc, dc, lc = (WHITE, PINK, PINK) if fill else (INK, SUBG, WINE)
+        text(slide, x + 0.4, y0 + 1.5, w - 0.8, 1.0, [lab], size=16, bold=True, color=lc, space_after=0)
+        text(slide, x + 0.4, y0 + 2.4, w - 0.8, 1.6, [title], size=25, bold=True, color=hc, space_after=0)
+        text(slide, x + 0.4, y0 + 4.1, w - 0.8, 3.4, [desc], size=18, color=dc, space_after=0)
+        if i < 5:
+            link(slide, [(x + w + 0.45, y0 + 4.4), (x + w + gap - 0.45, y0 + 4.4)])
 
 
 def set_paragraph(p, value):
@@ -272,147 +283,124 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     set_paragraph(paras[4], MEMBERS)
 
     L, R, CW = 2.6, 46.8, 40.6
-    INK = RGBColor(0x22, 0x22, 0x22)
+    B = {"bold": True, "color": INK}
+    W_ = {"bold": True, "color": WINE}
 
-    def sub(x, y, w, title):
-        """소제목 (1-1. …)."""
-        text(s, x, y, w, 1.6, [title], size=30, bold=True, space_after=0)
+    # 01 배경 ---------------------------------------------------------------------
+    head(s, L, 19.0, CW, "01", "BACKGROUND", "낮은 의자에서 털썩 앉게 된다")
+    card(s, L, 23.0, CW, 9.0)
+    picture(s, assets / "grandma_sit.png", L + 0.8, 23.5, 6.0)
+    text(s, L + 7.4, 23.6, CW - 8.0, 8.2, [
+        {"t": ["할머니께서 의자에 ", ("털썩 주저앉으시는", W_), " 모습을 보았다."], "size": 26, "bold": True,
+         "color": INK, "space_after": 8},
+        {"t": "의자가 낮을수록 더 힘들어하셨고, 테이블이나 손잡이를 팔로 짚고 버티며 내려가셨다. "
+              "하지만 의자가 낮거나 짚을 곳이 없으면 그마저도 할 수 없다. "
+              "팔로 짚는 것도 약해진 다리를 대신하는 보상 전략일 뿐이다.[7]", "size": 22, "color": SUBG,
+         "space_after": 8},
+        {"t": [("→ 이 문제를 H10으로 풀어 보기로 했다.", W_)], "size": 22}], space_after=0)
+    text(s, L, 32.5, CW, 1.6, ["왜 낮은 의자인가"], size=26, bold=True, color=INK, space_after=0)
+    reasons = [("REASON 1", "더 깊이 내려간다",
+                f"H10으로 직접 재 보니 30 cm 의자는 45 cm보다 고관절을 {st['chair']['deeper_by']:.0f}° 더 접어야 "
+                "엉덩이가 닿았다."),
+               ("REASON 2", "오래 버텨야 한다", "의자가 낮을수록 상체를 숙인 채 다리로 몸무게를 받치는 구간이 길어진다.[3]"),
+               ("REASON 3", "마지막에 힘이 풀린다", "다리가 끝까지 못 버티면 착석 직전 속도가 붙어 털썩 앉거나 뒤로 넘어진다.[1]")]
+    for i, (lab, title, body) in enumerate(reasons):
+        x = L + i * 13.8
+        card(s, x, 34.3, 13.0, 8.1)
+        text(s, x + 0.5, 34.8, 12.0, 0.9, [lab], size=16, bold=True, color=WINE, space_after=0)
+        text(s, x + 0.5, 35.6, 12.0, 1.5, [title], size=25, bold=True, color=INK, space_after=0)
+        text(s, x + 0.5, 37.3, 12.0, 5.0, [body], size=21, color=SUBG, space_after=0)
+    card(s, L, 42.9, CW, 3.1, fill=WINE)
+    text(s, L + 0.6, 42.9, CW - 1.2, 3.1, [[("대상  ", {"bold": True}),
+                                           "다리 근력이 약한 근감소증 위험 고령자 · 의자에서 다섯 번 일어서는 데 12초 이상[2]"]],
+         size=22, color=WHITE, anchor=MSO_ANCHOR.MIDDLE, space_after=0)
 
-    def para(x, y, w, h, parts, size=24, space_after=4):
-        text(s, x, y, w, h, parts if isinstance(parts[0], list) else [parts], size=size, color=INK,
-             space_after=space_after)
-
-    def vrule(x, y1, y2):
-        box(s, x, y1, 0.05, y2 - y1, [""], fill=RGBColor(0xBB, 0xBB, 0xBB), line=None, shape=MSO_SHAPE.RECTANGLE)
-
-    # 1. 주제 선정 배경 --------------------------------------------------------
-    section(s, L, 18.8, CW, "1. 주제 선정 배경")
-    sub(L, 22.0, 33.0, "1-1. 할머니의 착석에서 시작했다")
-    para(L, 23.7, 33.4, 6.6, [
-        "할머니께서 의자에 ", ("털썩 주저앉으시는", {"bold": True, "color": WINE}),
-        " 모습을 보았다. 의자가 낮을수록 더 힘들어하셨고, 테이블이나 의자 손잡이를 ",
-        ("팔 힘으로 짚고 버티며", {"bold": True}), " 내려가셨다. 하지만 의자가 낮거나 짚을 곳이 없으면 ",
-        ("그마저도 할 수 없다.", {"bold": True}), " 손으로 짚는 것도 약해진 하체를 팔로 대신하는 보상 전략일 뿐이다.[7] "
-        "이 문제를 H10으로 풀어 보고자 했다."], size=25)
-    picture(s, assets / "grandma_sit.png", L + 33.8, 21.8, 6.8)
-    sub(L, 30.5, CW, "1-2. 왜 낮은 의자인가")
-    para(L, 32.2, CW, 6.4, [
-        [("① 더 깊이 굽힌다. ", {"bold": True}), "30 cm 의자는 45 cm보다 허벅지가 9° 더 굽혀진다(실측)."],
-        [("② 더 오래 버틴다. ", {"bold": True}), "낮을수록 동작이 길고(1.6→2.0초) 상체를 더 숙인다.[3]"],
-        [("③ 마지막이 가장 빠르다. ", {"bold": True}), "털썩 주저앉거나 뒤로 넘어지기 쉽다.[1]"],
-        [("④ 대상: ", {"bold": True}), "착석 제어가 어려운 근감소증 위험 고령자 (5회 의자 일어서기 ≥ 12초)[2]"]],
-        size=24, space_after=3)
-    sub(L, 38.6, CW, "1-3. 기존 방법은 측정과 개입을 동시에 하지 못한다")
-    table(s, L, 40.3, CW, [
-        ["방법", "움직임 측정", "즉각 보조", "고관절 직접", "장소 무관"],
+    # 02 문제 정의 -----------------------------------------------------------------
+    head(s, R, 19.0, CW, "02", "PROBLEM", "앉을 때 고관절이 브레이크를 건다")
+    picture(s, assets / "muscles_wine.png", R + 1.3, 23.0, 38.0)
+    text(s, R, 37.4, CW, 4.2, [[
+        "엉덩이와 허벅지 뒤 근육(고관절 신전근)이 늘어나면서 힘을 내 ",
+        ("숙인 상체를 받치고 내려가는 속도를 늦춘다.", B),
+        " 힘이 약하면 마지막에 속도가 붙고 무게중심이 발 뒤로 빠진다.[5][6] "
+        "하지 착석을 보조하면 팔로 짚는 힘이 약 70% 줄었다는 보고도 있다.[8]"]], size=21, color=SUBG, space_after=0)
+    table(s, R, 41.6, CW, [
+        ["기존 방법", "움직임 측정", "즉각 보조", "고관절 직접", "장소 무관"],
         ["높은 의자 · 팔걸이", "X", "O", "X", "X"],
         ["지팡이 · 워커", "X", "O", "X", "O"],
         ["IMU · 카메라", "O", "X", "X", "△"],
-        ["H10 (제안)", "O", "O", "O", "O"]],
-        col_w=[12.6, 7.0, 7.0, 7.0, 7.0], row_h=1.3, size=21, highlight_last=True)
+        ["H10 (이번 연구)", "O", "O", "O", "O"]],
+        col_w=[12.6, 7.0, 7.0, 7.0, 7.0], row_h=0.88, size=18, highlight_last=True)
 
-    vrule(45.0, 19.0, 46.8)
+    # 03 알고리즘 -------------------------------------------------------------------
+    head(s, L, 47.6, 84.8, "03", "ALGORITHM", "평소의 나와 비교해, 빠를 때만 브레이크를 건다")
+    pipeline(s, 51.4)
 
-    # 2. 생체역학적 관점에서의 문제정의 ----------------------------------------
-    section(s, R, 18.8, CW, "2. 생체역학적 관점에서의 문제정의")
-    sub(R, 22.0, CW, "2-1. 앉을 때 고관절에서 일어나는 일")
-    picture(s, assets / "muscles_wine.png", R, 23.7, CW)
-    para(R, 38.9, CW, 3.9, [
-        "고관절 신전근¹은 편심성 수축²으로 ", ("① 숙인 상체를 버티고 ② 내려가는 속도를 늦춘다.", {"bold": True}),
-        " 고령자는 상체를 약 10° 덜 숙이고[5], 근력이 약하면 빠르게 내려가며 무게중심이 발 뒤로 빠진다"
-        " (고령자 낙상의 17.6%가 뒤로 주저앉음[6])."], size=23)
-    sub(R, 42.9, CW, "2-2. H10으로 같은 방향의 힘을 더한다")
-    picture(s, assets / "h10.png", R, 44.4, 2.6)
-    para(R + 3.0, 44.5, CW - 3.0, 2.4, [
-        "고관절을 펴는 토크 하나로 ", ("상체 지지와 하강 제동", {"bold": True, "color": WINE}),
-        "을 함께 돕는다. 하지 착석을 보조하면 팔로 짚는 힘이 약 70% 줄었다는 보고가 있다.[8]"], size=21)
-
-    # 3. 알고리즘 설계 ---------------------------------------------------------
-    section(s, 2.5, 47.8, 84.9, "3. 알고리즘 설계")
-    sub(L, 51.0, 84.8, "3-1. 제어 파이프라인")
-    pipeline(s, 52.8)
-
-    sub(L, 61.0, CW, "3-2. 착석 단계 판단")
-    states = [("서 있음", RGBColor(0x80, 0x80, 0x80), "평소 서 있는 자세를 기억한다"),
+    card(s, L, 61.0, 41.6, 23.6)
+    text(s, L + 1.0, 61.6, 39.6, 1.6, ["착석 단계 판단"], size=26, bold=True, color=INK, space_after=0)
+    states = [("서 있음", RGBColor(0x9A, 0x9A, 0x9A), "평소 서 있는 자세를 기억한다"),
               ("앉는 중", WINE, "평소 속도와 비교하며 보조한다"),
               ("낮은 의자", RGBColor(0xC0, 0x39, 0x4B), "평소 앉던 속도까지 더 세게 늦춘다"),
               ("앉음", RGBColor(0x4A, 0x4A, 0x4A), "0.3초에 걸쳐 힘을 풀고, 일어서면 처음으로")]
     trans = ["양쪽 허벅지가 굽혀지기 시작하면", "평소 앉던 각도보다 더 깊이 내려가면", "움직임이 멈추면 (의자에 닿음)"]
-    y = 62.8
+    y = 63.6
     for i, (name, col, desc) in enumerate(states):
-        box(s, L, y, 9.0, 2.2, [name], fill=col, line=None, size=25, bold=True, color=WHITE,
-            shape=MSO_SHAPE.RECTANGLE)
-        text(s, L + 9.6, y, 31.0, 2.2, [desc], size=23, color=INK, anchor=MSO_ANCHOR.MIDDLE)
+        card(s, L + 1.0, y, 8.6, 2.3, fill=col, radius_cm=1.15)
+        text(s, L + 1.0, y, 8.6, 2.3, [name], size=22, bold=True, color=WHITE, align=PP_ALIGN.CENTER,
+             anchor=MSO_ANCHOR.MIDDLE, space_after=0)
+        text(s, L + 10.2, y, 31.0, 2.3, [desc], size=24, color=INK, anchor=MSO_ANCHOR.MIDDLE, space_after=0)
         if i < 3:
-            arrow(s, L + 4.0, y + 2.3, 1.0, 1.0)
-            text(s, L + 5.4, y + 2.2, 35.0, 1.4, [trans[i]], size=20, color=GRAY, anchor=MSO_ANCHOR.MIDDLE)
-        y += 3.9
-    para(L, 76.9, CW, 1.2, [("앉다가 다시 일어서면 바로 '서 있음'으로 돌아가고 힘을 끈다.", {"color": GRAY})], size=20)
-    sub(L, 78.4, CW, "3-3. 개인 기준")
-    para(L, 80.1, CW, 4.6, [
-        [f"보조 없이 평소처럼 앉은 기록(30 cm {st['n_used']}회)을 허벅지 각도 5°마다 나눠, "
-         "각 각도에서의 평소 내려가는 속도와 그 흔들림 폭, 평소 상체 숙임을 저장한다. "
-         "같은 속도라도 사람마다 '빠르다'의 기준이 다르기 때문이다."]], size=25)
-
-    vrule(45.0, 61.0, 84.6)
-
-    sub(R, 61.0, CW, "3-4. 보조 힘 결정")
-    expl = [("① 상체 지지", "상체를 숙인 만큼 고관절을 펴는 힘을 더해, 숙인 자세를 버티는 엉덩이 근육의 부담을 덜어 준다."),
-            ("② 적응형 하강 제동", "내려가는 속도를 같은 자세의 평소 속도와 비교해, 평소보다 훨씬 빠를 때만 브레이크를 건다. "
-                                "낮은 의자에서는 더 세게 건다."),
-            ("③ 안전 제한", "최대 10 Nm까지만 내고, 힘은 천천히 올린다. 앉으면 0.3초에 걸쳐 풀고, 일어서면 바로 끈다.")]
-    y = 62.7
-    for (head, body), h in zip(expl, (2.4, 3.3, 2.4)):
-        para(R, y, CW, h, [[(head + ". ", {"bold": True, "color": WINE}), body]], size=22)
-        y += h
-    picture(s, figs / "fig_profile.png", R + 3.3, 70.6, 34.0)
-    para(R, 83.8, CW, 1.4, [("그림 2. 개인 기준 — 허벅지 각도별 평소 하강 속도(왼쪽)와 상체 숙임(오른쪽), 실측 30 cm 10회",
-                             {"color": GRAY})], size=18)
-
-    # 4. 작동 검증 (실측) ------------------------------------------------------------
-    section(s, 2.4, 86.7, 46.8, "4. 작동 검증 (실측 H10 데이터)")
-    sub(L, 89.9, 44.0, "4-1. 실측 착석을 알고리즘에 다시 재생")
-    picture(s, figs / "fig_trial_real.png", L, 91.6, 25.0)
-    para(L, 109.6, 25.0, 1.3, [("그림 3. 빠르게 앉은 rep05를 나머지 9회 기준에 재생 (토크는 계산값)", {"color": GRAY})], size=17)
-    steps = [("① 로그 디코딩", "H10 SUIT 로그 1 kHz → 100 Hz"),
-             ("② 앉기 검출", f"45 cm {st['chair']['n45']}회 · 30 cm {st['chair']['n30']}회"),
-             ("③ 개인 기준", f"평균 {st['dur']:.1f}초 · 최대 {st['peak']:.0f}°/s"),
-             ("④ 정상 착석", f"{st['quiet']}/{st['n_used']}회 제동 없음"),
-             ("⑤ 낮은 의자", f"30 cm {st['chair']['deep30']}/{st['chair']['n30']}회 감지")]
-    y = 91.8
-    for head, body in steps:
-        text(s, 28.4, y, 20.6, 1.4, [head], size=23, bold=True, color=WINE, space_after=0)
-        text(s, 28.4, y + 1.3, 20.6, 1.4, [body], size=21, color=INK, space_after=0)
+            text(s, L + 1.6, y + 2.3, 38.0, 1.3, [f"↓  {trans[i]}"], size=19, color=SUBG,
+                 anchor=MSO_ANCHOR.MIDDLE, space_after=0)
         y += 3.6
-    text(s, L, 111.0, 46.4, 3.8, [
-        {"t": "¹ 고관절 신전근: 엉덩이 · 허벅지 뒤 근육(대둔근 · 햄스트링)   "
-              "² 편심성 수축: 근육이 늘어나면서 힘을 내는 수축(착석 시 브레이크)", "size": 14, "color": GRAY},
+    text(s, L + 1.0, 78.2, 39.6, 6.0, [
+        {"t": [("개인 기준", W_)], "size": 23, "space_after": 2},
+        {"t": f"보조 없이 앉은 {st['n_used']}회를 허벅지 각도 5°마다 나눠 평소 속도와 흔들림 폭, 상체 숙임을 저장한다. "
+              "사람마다 '빠르다'의 기준이 다르기 때문이다.", "size": 21, "color": SUBG}], space_after=0)
+
+    card(s, 45.8, 61.0, 41.6, 23.6)
+    text(s, 46.8, 61.6, 39.6, 1.6, ["보조 힘은 이렇게 정한다"], size=26, bold=True, color=INK, space_after=0)
+    text(s, 46.8, 63.6, 39.6, 7.6, [
+        {"t": [("① 상체 지지  ", W_), "숙인 만큼 고관절을 펴는 힘을 더해 엉덩이 근육의 부담을 던다."], "space_after": 10},
+        {"t": [("② 하강 제동  ", W_), "같은 자세의 평소 속도보다 훨씬 빠를 때만 건다. 낮은 의자에서는 더 세게."],
+         "space_after": 10},
+        {"t": [("③ 안전 제한  ", W_), "최대 10 Nm, 천천히 올리고, 앉으면 0.3초에 걸쳐 푼다."]}],
+        size=22, color=INK, space_after=0)
+    picture(s, figs / "fig_profile.png", 49.6, 71.2, 34.0)
+
+    # 04 검증 -----------------------------------------------------------------------
+    head(s, L, 86.4, 45.0, "04", "VALIDATION", "실측 착석을 알고리즘에 다시 재생했다", size=36)
+    picture(s, figs / "fig_trial_real.png", L, 90.3, 25.0)
+    stats4 = [(f"{st['n_used']}회", "30 cm 의자 착석으로 개인 기준을 만들었다"),
+              (f"{st['quiet']}/{st['n_used']}", "정상 착석에서는 제동이 걸리지 않았다"),
+              (f"{st['chair']['deep30']}/{st['chair']['n30']}", "30 cm 착석을 낮은 의자로 감지했다")]
+    for i, (big, label) in enumerate(stats4):
+        stat(s, 28.4, 90.3 + i * 6.05, 19.2, 5.6, big, label)
+    text(s, L, 108.6, 45.0, 6.0, [
+        {"t": "그래프: 빠르게 앉은 rep05를 나머지 9회 기준에 재생 (토크는 계산값).   "
+              "고관절 신전근: 대둔근 · 햄스트링.   편심성 수축: 근육이 늘어나면서 힘을 내는 수축.", "size": 13},
         {"t": "[1] Robinovitch SN et al. Lancet. 2013;381:47–54.  [2] Chen LK et al. JAMDA. 2020;21:300–307.  "
-              "[3] Yoshioka S et al. BioMed Eng OnLine. 2014;13:27.  [4] Balasubramanian S et al. JNER. 2015;12:112.  "
-              "[5] Dubost V et al. Phys Ther. 2005;85:404–412.  [6] Stevens JA et al. Inj Epidemiol. 2014;1:5.  "
-              "[7] van der Kruk E et al. J Biomech. 2021;122:110411.  [8] Chang SR et al. JNER. 2016;13:27.",
-         "size": 14, "color": GRAY}], size=14, space_after=1)
+              "[3] Yoshioka S et al. BioMed Eng OnLine. 2014;13:27.  [5] Dubost V et al. Phys Ther. 2005;85:404–412.  "
+              "[6] Stevens JA et al. Inj Epidemiol. 2014;1:5.  [7] van der Kruk E et al. J Biomech. 2021;122:110411.  "
+              "[8] Chang SR et al. JNER. 2016;13:27.", "size": 13}], color=SUBG, space_after=2)
 
-    # 5. 결과 및 기대 효과 --------------------------------------------------------
-    section(s, 51.2, 86.7, 36.2, "5. 결과 및 기대 효과")
-    sub(51.2, 89.9, 36.2, "5-1. 같은 사람의 45 cm vs 30 cm 착석")
-    table(s, 51.2, 91.6, 36.2, result_rows(metrics_csv), col_w=[15.2, 7.0, 7.0, 7.0], row_h=1.15, size=20,
+    # 05 결과 · 06 결론 ----------------------------------------------------------------
+    X5, W5 = 50.0, 37.4
+    head(s, X5, 86.4, W5, "05", "RESULT", f"낮은 의자에서 {st['chair']['deeper_by']:.0f}° 더 깊이 앉았다", size=36)
+    table(s, X5, 90.3, W5, result_rows(metrics_csv), col_w=[16.4, 7.0, 7.0, 7.0], row_h=0.98, size=19,
           highlight_last=True)
-    sub(51.2, 100.0, 36.2, "5-2. 기대 효과")
-    para(51.2, 101.6, 36.2, 3.4, [
-        [("낮은 의자 자동 감지 · ", {"bold": True}), "의자 높이를 몰라도 착석 각도로 판단 (실측 9/10)"],
-        [("개인 맞춤 · ", {"bold": True}), "평소 착석 10~15회만으로 기준 생성"],
-        [("장소 무관 · ", {"bold": True}), "몸에 입는 장치라 짚을 곳이 없는 곳에서도 고관절을 직접 보조"]], size=21, space_after=2)
-
-    # 6. 결론 ---------------------------------------------------------------------
-    section(s, 51.2, 105.2, 36.2, "6. 결론")
-    para(51.2, 108.3, 36.2, 6.5, [
-        [("실측 · ", {"bold": True}), f"30 cm에서 {st['chair']['deeper_by']:.0f}° 더 깊게 앉았고, 낮은 의자를 "
-                                        f"{st['chair']['deep30']}/{st['chair']['n30']}회 감지했으며, 정상 착석 "
-                                        f"{st['quiet']}/{st['n_used']}회는 제동하지 않았다."],
-        [("H10 적용 · ", {"bold": True}), "실측 기준값을 넣은 C 코드로 30 cm 의자에서 보조 OFF/ON을 비교한다."],
-        [("주장 범위 · ", {"bold": True}), "낮은 의자 착석 후반부의 급하강 감소까지이며, 낙상 예방 자체는 입증하지 않았다."]],
-        size=23, space_after=4)
+    card(s, X5, 97.6, W5, 5.6)
+    text(s, X5 + 0.6, 97.9, W5 - 1.2, 5.0, [
+        [("낮은 의자 자동 감지  ", W_), "의자 높이를 몰라도 착석 각도로 판단"],
+        [("개인 맞춤  ", W_), "평소 착석 10~15회만으로 기준 생성"],
+        [("장소 무관  ", W_), "짚을 곳이 없어도 고관절을 직접 보조"]], size=22, color=INK, space_after=6)
+    head(s, X5, 103.8, W5, "06", "CONCLUSION", "확인한 것과 남은 것", size=30)
+    text(s, X5, 106.8, W5, 7.8, [
+        [("확인 ", B), f"30 cm에서 {st['chair']['deeper_by']:.0f}° 더 깊게 앉았고, 낮은 의자를 "
+                      f"{st['chair']['deep30']}/{st['chair']['n30']}회 감지했으며, 정상 착석 "
+                      f"{st['quiet']}/{st['n_used']}회는 제동하지 않았다."],
+        [("다음 ", B), "실측 기준값을 넣은 C 코드로 30 cm 의자에서 보조 OFF/ON을 비교한다."],
+        [("한계 ", B), "한 사람의 기록이며, 낙상 예방 자체는 아직 입증하지 않았다."]],
+        size=21, color=SUBG, space_after=6)
 
     # 한글이 글자 단위로 끊기지 않게 모든 문단을 단어 단위 줄바꿈으로 둔다
     for p in tree.iter(qn("a:p")):
