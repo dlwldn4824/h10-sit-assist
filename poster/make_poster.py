@@ -19,7 +19,9 @@ import sys
 import pandas as pd
 from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.dml import MSO_LINE
+from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
+from pptx.oxml.ns import qn
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Cm, Pt
 
@@ -138,6 +140,88 @@ def table(slide, x, y, w, rows, col_w, row_h, size=24, highlight_last=False, mar
             cx += col_w[j]
 
 
+def link(slide, pts, color=RGBColor(0x9A, 0x8A, 0x8E)):
+    """점선 연결선. 마지막 구간 끝에 화살촉."""
+    segs = list(zip(pts, pts[1:]))
+    for k, ((x1, y1), (x2, y2)) in enumerate(segs):
+        c = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Cm(x1), Cm(y1), Cm(x2), Cm(y2))
+        c.name = "PIPE link"
+        c.line.color.rgb = color
+        c.line.width = Pt(2.5)
+        c.line.dash_style = MSO_LINE.DASH
+        if k == len(segs) - 1:
+            ln = c.line._get_or_add_ln()
+            ln.append(ln.makeelement(qn("a:tailEnd"), {"type": "triangle", "w": "med", "len": "med"}))
+
+
+def pipeline(slide, y0):
+    """제어 파이프라인: 측정 → 평소와 비교 → 단계 판단 → 두 가지 힘 → H10 (발표 14쪽과 같은 구성)."""
+    DASH, DARK, SUB = RGBColor(0x9A, 0x8A, 0x8E), RGBColor(0x55, 0x16, 0x25), RGBColor(0x66, 0x66, 0x66)
+    shapes = []
+
+    def group(x, w, label):
+        g = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Cm(x), Cm(y0 + 0.6), Cm(w), Cm(6.4))
+        g.adjustments[0] = 0.08
+        g.fill.background()
+        g.line.color.rgb = DASH
+        g.line.width = Pt(2)
+        g.line.dash_style = MSO_LINE.DASH
+        g.shadow.inherit = False
+        shapes.append(g)
+        shapes.append(box(slide, x + w / 2 - 2.0, y0 + 0.1, 4.0, 1.0, [label], fill=WHITE, line=DASH, size=20, bold=True))
+
+    def card(x, y, w, h, head, sub, fill=WHITE, line=RGBColor(0xE6, 0xD6, 0xDA), hc=BLACK, sc=SUB, inline=False):
+        paras = ([[(head, {"bold": True, "color": hc, "size": 20}), ("   " + sub, {"color": sc, "size": 16})]] if inline
+                 else [[(head, {"bold": True, "color": hc, "size": 22})], [(sub, {"color": sc, "size": 17})]])
+        shapes.append(box(slide, x, y, w, h, paras, fill=fill, line=line))
+
+    def circle(x, y, d, head, sub, grad=False):
+        c = slide.shapes.add_shape(MSO_SHAPE.OVAL, Cm(x), Cm(y), Cm(d), Cm(d))
+        c.shadow.inherit = False
+        if grad:
+            c.fill.gradient()
+            c.fill.gradient_angle = 45
+            c.fill.gradient_stops[0].color.rgb = RGBColor(0xC9, 0x7A, 0x8A)
+            c.fill.gradient_stops[1].color.rgb = WINE
+            c.line.fill.background()
+        else:
+            c.fill.solid()
+            c.fill.fore_color.rgb = PINK
+            c.line.color.rgb = WINE
+            c.line.width = Pt(2)
+        tf = c.text_frame
+        tf.word_wrap = True
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        tf.margin_left = tf.margin_right = Cm(0.2)
+        lines = [(t, 20, True) for t in head.split("\n")] + ([(sub, 14, False)] if sub else [])
+        for i, (t, sz, b) in enumerate(lines):
+            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            p.alignment = PP_ALIGN.CENTER
+            _runs(p, t, sz, b, WHITE if grad else (WINE if b else SUB))
+        shapes.append(c)
+
+    group(2.6, 19.0, "측정")
+    card(3.4, y0 + 1.5, 17.4, 1.6, "H10 센서", "허벅지 IMU · 고관절 엔코더", inline=True)
+    card(3.4, y0 + 3.3, 17.4, 1.6, "잡음 제거", "빠른 떨림을 걸러 냄", inline=True)
+    card(3.4, y0 + 5.1, 17.4, 1.6, "자세 계산", "굽힘 · 속도 · 상체 숙임", inline=True)
+    card(24.6, y0, 11.0, 1.7, "평소 기준값", "내 평소 착석 10회")
+    circle(27.6, y0 + 2.0, 5.0, "평소보다\n얼마나\n빠른가", "", grad=True)
+    shapes.append(box(slide, 37.0, y0 + 3.0, 11.5, 3.2, [[("지금 어느 단계인가", {"bold": True, "color": WHITE, "size": 22})],
+                                                          [("서 있음 · 앉는 중 · 낮은 의자 · 앉음", {"color": PINK, "size": 16})]],
+                      fill=DARK, line=None))
+    group(50.4, 20.0, "출력")
+    circle(52.6, y0 + 1.0, 5.6, "상체 지지", "숙인 상체를 받침")
+    circle(62.6, y0 + 1.0, 5.6, "하강 제동", "평소보다 빠를 때만")
+    card(72.6, y0 + 1.9, 14.8, 4.4, "H10 보조 힘", "두 힘을 더해 최대 10 Nm\n천천히 켜고 앉으면 풀기", hc=WINE, sc=BLACK)
+    link(slide, [(21.6, y0 + 4.5), (27.5, y0 + 4.5)])
+    link(slide, [(30.1, y0 + 1.7), (30.1, y0 + 1.95)])
+    link(slide, [(32.6, y0 + 4.5), (36.9, y0 + 4.5)])
+    link(slide, [(48.5, y0 + 4.6), (50.3, y0 + 4.6)])
+    link(slide, [(70.4, y0 + 4.1), (72.5, y0 + 4.1)])
+    for sh in shapes:
+        sh.name = "PIPE " + sh.name
+
+
 def set_paragraph(p, value):
     """첫 run의 서식을 살려 문단 글자만 바꾼다."""
     runs = p.runs
@@ -252,49 +336,46 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
 
     # 3. 알고리즘 설계 ---------------------------------------------------------
     section(s, 2.5, 47.8, 84.9, "3. 알고리즘 설계")
-    text(s, L, 51.0, 42.0, 2.0, ["FSM 상태 전이 [STANDING – DESCENT – DEEP – SEATED]"], size=34, bold=True)
-    states = [("STANDING", RGBColor(0x80, 0x80, 0x80), "서 있음 · 기준 자세(허벅지·상체) 갱신"),
-              ("DESCENT", WINE, "개인 기준과 비교 → 상체 지지 + 적응형 제동"),
-              ("DEEP", RGBColor(0xC0, 0x39, 0x4B), "낮은 의자 · 평소 착석 속도까지 감속, 제동 ×1.5"),
-              ("SEATED", RGBColor(0x4A, 0x4A, 0x4A), "토크 0.3 s에 걸쳐 해제 → 일어서면 STANDING")]
-    trans = ["양쪽 허벅지 ω > 5°/s, 0.1 s 유지",
-             "Δθ > 평소 착석 각도 + 2σ, 아직 착석 전",
-             "의자 압력센서 ON 또는 |ω| < 8°/s, 0.15 s"]
-    y = 53.6
-    for i, (name, col, desc) in enumerate(states):
-        box(s, 3.2, y, 11.0, 2.7, [name], fill=col, line=None, size=30, bold=True, color=WHITE)
-        text(s, 14.8, y, 28.0, 2.7, [desc], size=26, anchor=MSO_ANCHOR.MIDDLE)
-        if i < 3:
-            arrow(s, 8.1, y + 2.85, 1.2, 1.6)
-            text(s, 9.8, y + 2.8, 33.0, 1.7, [[("▶ ", {"color": WINE}), trans[i]]], size=24, color=GRAY,
-                 anchor=MSO_ANCHOR.MIDDLE)
-        y += 4.5
-    text(s, 3.2, y - 0.2, 40.0, 1.5, ["※ 앉다가 다시 일어서면(ω < −5°/s) 즉시 STANDING, 토크 0"], size=22, color=GRAY)
-    text(s, L, 72.8, 42.0, 1.9, [f"개인 기준 (실측 30 cm 착석 {st['n_used']}회 + 45 cm 착석 각도)"], size=32, bold=True)
-    text(s, L, 74.8, 42.0, 7.8, [
-        ["보조 OFF로 평소처럼 앉은 기록을 허벅지 5° 구간으로 나눠 저장"],
-        [("• 평균 하강 속도 ω_ref(θ)와 표준편차 σ(θ)", {"bold": True})],
-        [("• 평균 상체 숙임 φ_ref(θ) (허리 IMU)", {"bold": True})],
-        ["• 평소 착석 각도와 평소 최대 각가속도"],
-        ["→ 사람마다 다른 착석 속도·자세를 그대로 기준으로 사용"]], size=26, space_after=4)
+    text(s, L, 51.0, 84.8, 2.0, ["제어 파이프라인: 재고 → 평소와 비교하고 → 단계를 판단해 → 두 가지 힘으로 돕는다"], size=34, bold=True)
+    pipeline(s, 53.2)
 
-    text(s, 46.3, 51.0, 41.5, 2.0, ["보조 토크 = 상체 지지 + 적응형 제동"], size=34, bold=True)
-    eq = [("1. 상체 지지", "τ_s = K_s · sin φ   (K_s = 6 Nm, φ: 엔코더 − 허벅지 IMU)",
-           "숙인 상체를 버티는 신전근 부담을 덜어 올바른 숙임 자세 유지"),
-          ("2. 적응형 하강 제동", "z³ = (ω̂ − ω_ref(θ̂)) / σ(θ̂),   τ_b = K·g·max(0, z − 3.5)",
-           "ω̂ = ω + α·0.05 s로 미리 반응 · DEEP / 상체 덜 숙임이면 g = 1.5 · 급가속이면 z ≥ 5"),
-          ("3. 출력 제한", "τ = sat[0, 10 Nm](τ_s + τ_b),   상승 ≤ 60 Nm/s",
-           "두 토크 모두 신전 방향이라 서로 상쇄되지 않음 · 일어설 때는 0")]
-    y = 53.3
-    for head, formula, desc in eq:
-        text(s, 46.8, y, 41.0, 1.6, [head], size=30, bold=True, color=WINE)
-        text(s, 47.6, y + 1.6, 40.0, 1.5, [formula], size=28)
-        text(s, 47.6, y + 3.1, 40.0, 1.5, [desc], size=22, color=GRAY)
-        y += 5.0
-    picture(s, figs / "fig_profile.png", 49.6, 68.5, 35.0)
-    box(s, L, 82.6, 84.8, 3.0,
-        ["\"개인 기준이 이상을 찾고, 상체 지지가 자세를 받치고, 적응형 제동이 속도를 잡는다\""],
-        size=32, bold=True)
+    text(s, L, 60.6, 42.0, 1.9, ["착석 단계 판단 (4단계)"], size=32, bold=True)
+    states = [("서 있음", RGBColor(0x80, 0x80, 0x80), "평소 서 있는 자세를 기억한다"),
+              ("앉는 중", WINE, "평소 속도와 비교하며 보조한다"),
+              ("낮은 의자", RGBColor(0xC0, 0x39, 0x4B), "평소 앉던 속도까지 더 세게 늦춘다"),
+              ("앉음", RGBColor(0x4A, 0x4A, 0x4A), "0.3초에 걸쳐 힘을 풀고, 일어서면 처음으로")]
+    trans = ["양쪽 허벅지가 굽혀지기 시작하면",
+             "평소 앉던 각도보다 더 깊이 내려가면",
+             "움직임이 멈추면 (의자에 닿음)"]
+    y = 62.7
+    for i, (name, col, desc) in enumerate(states):
+        box(s, 3.2, y, 10.0, 2.4, [name], fill=col, line=None, size=28, bold=True, color=WHITE)
+        text(s, 13.8, y, 29.0, 2.4, [desc], size=24, anchor=MSO_ANCHOR.MIDDLE)
+        if i < 3:
+            arrow(s, 7.6, y + 2.5, 1.0, 1.0)
+            text(s, 9.0, y + 2.4, 33.0, 1.2, [[("▶ ", {"color": WINE}), trans[i]]], size=21, color=GRAY,
+                 anchor=MSO_ANCHOR.MIDDLE)
+        y += 3.6
+    text(s, 3.2, y - 1.0, 40.0, 1.3, ["※ 앉다가 다시 일어서면 바로 '서 있음'으로 돌아가고 힘을 끈다"], size=20, color=GRAY)
+    text(s, L, 77.5, 42.0, 1.8, ["개인 기준: 내 평소 착석이 기준"], size=30, bold=True)
+    text(s, L, 79.3, 42.0, 6.0, [
+        [f"보조 없이 평소처럼 앉은 기록(30 cm {st['n_used']}회)을 허벅지 각도 5°마다 나눠 저장"],
+        [("• 각 각도에서의 평소 내려가는 속도와 그 흔들림 폭", {"bold": True})],
+        [("• 각 각도에서의 평소 상체 숙임", {"bold": True})],
+        ["• 평소 앉는 깊이 (45 cm 의자 착석 각도)"],
+        ["→ 같은 속도라도 사람마다 '빠르다'의 기준이 다르다"]], size=22, space_after=2)
+
+    text(s, 46.3, 60.6, 41.5, 1.9, ["보조 힘은 이렇게 정한다"], size=32, bold=True)
+    expl = [("① 상체 지지", "상체를 숙인 만큼 고관절을 펴는 힘을 더해, 숙인 자세를 버티는 엉덩이 근육의 부담을 덜어 준다."),
+            ("② 적응형 하강 제동", "내려가는 속도를 같은 자세의 평소 속도와 비교해, 평소보다 훨씬 빠를 때만 브레이크를 건다. "
+                                "낮은 의자에서는 더 세게 건다."),
+            ("③ 안전 제한", "최대 10 Nm까지만, 힘은 천천히 올린다. 앉으면 0.3초에 걸쳐 풀고, 일어서면 바로 끈다.")]
+    y = 62.6
+    for head, body in expl:
+        text(s, 46.8, y, 41.0, 1.5, [head], size=28, bold=True, color=WINE)
+        text(s, 46.8, y + 1.45, 41.0, 2.6, [body], size=22)
+        y += 3.9
+    picture(s, figs / "fig_profile.png", 53.0, 74.6, 28.0)
 
     # 4. 작동 검증 (실측) ------------------------------------------------------------
     section(s, 2.4, 86.7, 46.8, "4. 작동 검증 (실측 H10 데이터)")
@@ -318,8 +399,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
         {"t": [("용어 · 출처", {"bold": True, "color": WINE}),
                ("   그래프: 실측 rep05를 나머지 9회 기준에 다시 재생 (토크는 계산값)", {"color": GRAY})], "size": 17},
         {"t": "¹ 고관절 신전근: 엉덩이 · 허벅지 뒤 근육(대둔근 · 햄스트링), 다리를 뒤로 폄   "
-              "² 편심성 수축: 근육이 늘어나면서 힘을 내는 수축(착석 시 브레이크)   "
-              "³ z: 평소 평균보다 표준편차의 몇 배 빠른지   ⁴ jerk: 가속도 변화의 급격함(작을수록 부드러움)",
+              "² 편심성 수축: 근육이 늘어나면서 힘을 내는 수축(착석 시 브레이크)",
          "size": 15, "color": R_},
         {"t": "[1] Robinovitch SN et al. Lancet. 2013;381(9860):47–54.   "
               "[2] Chen LK et al. J Am Med Dir Assoc. 2020;21(3):300–307.   "
