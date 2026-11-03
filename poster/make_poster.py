@@ -114,26 +114,28 @@ def picture(slide, path, x, y, w):
     return slide.shapes.add_picture(str(path), Cm(x), Cm(y), width=Cm(w))
 
 
-def table(slide, x, y, w, rows, col_w, row_h, size=24, highlight_last=False):
-    shp = slide.shapes.add_table(len(rows), len(rows[0]), Cm(x), Cm(y), Cm(w), Cm(row_h * len(rows)))
-    tb = shp.table
-    for j, cw in enumerate(col_w):
-        tb.columns[j].width = Cm(cw)
+def table(slide, x, y, w, rows, col_w, row_h, size=24, highlight_last=False, marks=False):
+    """머리줄은 와인색 둥근 띠, 본문은 얇은 구분선만. marks=True면 O/X를 ●/–로 바꾼다."""
+    n = len(rows)
+    box(slide, x, y, w, row_h, [""], fill=WINE, line=None)
     for i, row in enumerate(rows):
-        tb.rows[i].height = Cm(row_h)
+        yy = y + i * row_h
+        hl = highlight_last and i == n - 1
+        if hl:
+            box(slide, x, yy + 0.08, w, row_h - 0.16, [""], fill=PINK, line=WINE)
+        elif 0 < i < n - 1 or (i == n - 1 and not highlight_last):
+            box(slide, x + 0.2, yy + row_h - 0.03, w - 0.4, 0.04, [""], fill=RGBColor(0xE6, 0xD6, 0xDA), line=None,
+                shape=MSO_SHAPE.RECTANGLE)
+        cx = x
         for j, val in enumerate(row):
-            cell = tb.cell(i, j)
-            head = i == 0
-            hl = highlight_last and i == len(rows) - 1
-            cell.fill.solid()
-            cell.fill.fore_color.rgb = WINE if head else (PINK if hl else (WHITE if i % 2 else RGBColor(0xF4, 0xF4, 0xF4)))
-            cell.margin_left = cell.margin_right = Cm(0.15)
-            cell.margin_top = cell.margin_bottom = Cm(0.05)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            p = cell.text_frame.paragraphs[0]
-            p.alignment = PP_ALIGN.LEFT if j == 0 else PP_ALIGN.CENTER
-            _runs(p, str(val), size, bold=head or hl, color=WHITE if head else BLACK)
-    return tb
+            txt, color = str(val), (WHITE if i == 0 else BLACK)
+            if marks and i > 0 and j > 0:
+                txt, color = ("●", WINE) if val == "O" else ("–", RGBColor(0xB5, 0xB5, 0xB5))
+            text(slide, cx + (0.3 if j == 0 else 0), yy, col_w[j] - (0.3 if j == 0 else 0), row_h,
+                 [{"t": txt, "color": color, "bold": i == 0 or hl or (marks and txt == "●"),
+                   "align": PP_ALIGN.LEFT if j == 0 else PP_ALIGN.CENTER}],
+                 size=size, anchor=MSO_ANCHOR.MIDDLE, space_after=0)
+            cx += col_w[j]
 
 
 def set_paragraph(p, value):
@@ -208,30 +210,36 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
 
     # 1. 주제 선정 배경 --------------------------------------------------------
     section(s, L, 18.8, CW, "1. 주제 선정 배경")
-    text(s, L, 22.2, CW, 1.8, ["왜 낮은 의자인가?"], size=34, bold=True)
-    text(s, L, 24.0, 31.2, 8.6, [
+    text(s, L, 22.2, CW, 1.8, ["출발점: 할머니의 착석"], size=34, bold=True)
+    text(s, L, 24.0, 31.6, 4.6, [[
+        "할머니께서 의자에 ", ("털썩 주저앉으시는", {"bold": True, "color": WINE}),
+        " 모습을 보았다. 의자가 낮을수록 더 힘들어하셨고, 테이블이나 의자 손잡이를 ",
+        ("팔 힘으로 짚고 버티며", {"bold": True}), " 내려가셨다. 하지만 의자가 낮거나 짚을 곳이 없으면 ",
+        ("그마저도 할 수 없다.", {"bold": True, "color": WINE}), " 이 문제를 H10으로 풀어 보고자 했다."]], size=24)
+    picture(s, assets / "grandma_sit.png", L + 32.4, 22.0, 8.1)
+    text(s, L, 28.9, 31.6, 1.5, ["왜 낮은 의자인가?"], size=30, bold=True)
+    text(s, L, 30.4, 31.6, 5.0, [
         [("① 더 깊이 굽혀야 한다: ", {"bold": True}), "30 cm 의자는 45 cm보다 허벅지가 9° 더 굽혀진다."],
         [("② 더 오래, 더 숙여서 버텨야 한다: ", {"bold": True}), "낮을수록 길고(1.6→2.0초) 더 숙인다.[3]"],
         [("③ 마지막 순간이 가장 빠르다: ", {"bold": True}),
          ("털썩 주저앉거나 뒤로 넘어지기 쉽다.", {"bold": True, "color": WINE}), "[1]"],
-        [("④ 생활 곳곳에 있다: ", {"bold": True}), "팔걸이 없는 소파 · 좌변기 (손 짚기는 보상 전략[7])"]], size=24, space_after=14)
-    picture(s, assets / "grandma_sit.png", L + 32.0, 22.0, 8.1)
-    box(s, L, 32.9, CW, 2.0, [[("타깃: ", {"bold": True}), "착석 제어가 어려운 근감소증 위험 고령자 (AWGS 2019[2]: 5회 의자 일어서기 ≥ 12초)"]],
+        [("④ 생활 곳곳에 있다: ", {"bold": True}), "팔걸이 없는 소파 · 좌변기 (손 짚기는 보상 전략[7])"]], size=24, space_after=3)
+    box(s, L, 35.6, CW, 1.8, [[("타깃: ", {"bold": True}), "착석 제어가 어려운 근감소증 위험 고령자 (AWGS 2019[2]: 5회 의자 일어서기 ≥ 12초)"]],
         size=22, align=PP_ALIGN.LEFT)
-    text(s, L, 35.1, CW, 1.6, ["기존 방법은 측정과 개입을 동시에 하지 못한다"], size=30, bold=True)
-    table(s, L, 36.8, CW, [
+    text(s, L, 37.6, CW, 1.5, ["기존 방법은 측정과 개입을 동시에 하지 못한다"], size=28, bold=True)
+    table(s, L, 39.2, CW, [
         ["방법", "움직임 측정", "즉각 보조", "고관절 직접", "장소 무관"],
         ["높은 의자 · 팔걸이", "X", "O", "X", "X"],
         ["지팡이 · 워커", "X", "O", "X", "O"],
         ["IMU", "O", "X", "X", "O"],
         ["카메라", "O", "X", "X", "X"],
         ["H10 (제안)", "O", "O", "O", "O"]],
-        col_w=[11.6, 7.25, 7.25, 7.25, 7.25], row_h=1.5, size=24, highlight_last=True)
+        col_w=[11.6, 7.25, 7.25, 7.25, 7.25], row_h=1.15, size=21, highlight_last=True, marks=True)
 
     # 2. 생체역학적 관점에서의 문제정의 ----------------------------------------
     section(s, R, 18.8, CW, "2. 생체역학적 관점에서의 문제정의")
     text(s, R, 22.2, CW, 1.8, ["어째서 낙상 위험이 생기는가?"], size=34, bold=True)
-    picture(s, assets / "muscles.png", R + 1.3, 23.9, 38.0)
+    picture(s, assets / "muscles_wine.png", R + 1.3, 23.9, 38.0)
     text(s, R, 38.4, CW, 4.4, [
         ["고관절 신전근¹은 편심성 수축²으로 ", ("① 숙인 상체를 버티고 ② 하강 속도를 제동", {"bold": True}),
          "한다. 고령자는 상체를 약 10° 덜 숙이고[5], 근력이 약하면 빠르게 내려가며 ",
@@ -326,7 +334,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     # 5. 결과 및 기대 효과 --------------------------------------------------------
     section(s, 51.2, 86.7, 36.2, "5. 결과 및 기대 효과")
     text(s, 51.2, 89.8, 36.2, 1.3, ["같은 사람의 H10 실측: 45 cm 2회(보행 보조 ON) vs 30 cm 10회"], size=20, color=GRAY)
-    table(s, 51.2, 91.1, 36.2, result_rows(metrics_csv), col_w=[14.6, 7.2, 7.2, 7.2], row_h=1.2, size=21)
+    table(s, 51.2, 91.1, 36.2, result_rows(metrics_csv), col_w=[14.6, 7.2, 7.2, 7.2], row_h=1.2, size=21, highlight_last=True)
     text(s, 51.2, 99.7, 36.2, 4.6, [
         [("① 낙상 위험 동작 완화: ", {"bold": True}), "낮은 의자를 착석 각도로 자동 감지 (실측 9/10)"],
         [("② 의자 높이와 무관: ", {"bold": True}), "착용형 + 낮은 의자 자동 감지"],
@@ -342,6 +350,11 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
         [("# 주장 범위", {"bold": True})],
         {"t": "낮은 의자 착석 후반부의 급하강 감소 (낙상 예방 자체는 입증하지 않음)", "size": 22, "color": GRAY}],
         size=26, space_after=1)
+
+    # 한글이 글자 단위로 끊기지 않게 모든 문단을 단어 단위 줄바꿈으로 둔다
+    from pptx.oxml.ns import qn
+    for p in tree.iter(qn("a:p")):
+        p.get_or_add_pPr().set("eaLnBrk", "0")
 
     out.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(out))
