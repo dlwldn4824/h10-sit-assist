@@ -22,7 +22,7 @@ sys.path.insert(0, str(HERE_ROOT))
 from evaluate import descent_window, load_participant, offline_kinematics, speed_up_late  # noqa: E402
 from sit_assist import Config, Phase, Profile, run_trial  # noqa: E402
 
-matplotlib.rcParams.update({"font.family": "AppleGothic", "axes.unicode_minus": False,
+matplotlib.rcParams.update({"font.family": "Noto Sans KR", "axes.unicode_minus": False,
                             "font.size": 19, "legend.fontsize": 16, "axes.titlesize": 20, "axes.spines.top": False, "axes.spines.right": False})
 WINE, GRAY, GREEN, RED, BLUE, PURPLE = "#772235", "#9a9a9a", "#2e8b57", "#d1495b", "#2f6db5", "#7b4fa0"
 COND_COLOR = {1: GREEN, 2: RED, 3: BLUE}
@@ -73,12 +73,13 @@ def _draw_person(ax, x0, angles, color, chair=False, h10=False, com_ok=True):
                     arrowprops=dict(arrowstyle="-|>", color=RED, lw=3))
 
 
-def fig_posture(out: Path):
+def fig_posture(out: Path, ink: str | None = None):
+    """ink를 주면 사람·제목을 그 색 하나로 그린다 (포스터용 검정)."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 4.9))
     good = [(0, 2, 2), (12, 40, 35), (10, 85, 15)]
     bad = [(0, 2, 2), (18, 40, 6), (12, 80, -10)]
-    for ax, poses, color, title, ok in ((axes[0], good, GREEN, "올바른 착석: 상체를 숙여 무게중심을 발 위에", True),
-                                        (axes[1], bad, RED, "잘못된 착석: 상체를 세운 채 뒤로 털썩", False)):
+    for ax, poses, color, title, ok in ((axes[0], good, ink or GREEN, "올바른 착석: 상체를 숙여 무게중심을 발 위에", True),
+                                        (axes[1], bad, ink or RED, "잘못된 착석: 상체를 세운 채 뒤로 털썩", False)):
         for k, ang in enumerate(poses):
             _draw_person(ax, k * 1.25, ang, color, chair=(k == 2), h10=ok and k == 1,
                          com_ok=ok or k == 0)
@@ -91,7 +92,7 @@ def fig_posture(out: Path):
         ax.set_aspect("equal")
         ax.axis("off")
     axes[0].text(1.25, -0.06, "● H10 (고관절)", color=H10_DOT, ha="center", va="top", fontsize=17)
-    axes[1].text(2.5, 1.2, "무게중심이\n발 뒤로", color=RED, ha="center", fontsize=19, fontweight="bold")
+    axes[1].text(2.5, 1.2, "무게중심이\n발 뒤로", color=ink or RED, ha="center", fontsize=19, fontweight="bold")
     fig.tight_layout()
     fig.savefig(out / "fig_posture.png", dpi=200, facecolor="white")
     plt.close(fig)
@@ -455,6 +456,30 @@ def fig_trial(df: pd.DataFrame, prof: Profile, out: Path, cfg: Config = Config()
     plt.close(fig)
 
 
+def fig_session(raw45: Path, raw30: Path, out: Path):
+    """실측 기록 원본: 허벅지 굽힘 각도와 자동 검출한 착석 구간(음영)."""
+    from h10_decode import decode_file
+    from preprocess_h10 import find_sit_downs, to_100hz
+    fig, ax = plt.subplots(2, 1, figsize=(13, 4.2), sharex=True)
+    for a, path, lab in ((ax[0], raw45, "45 cm"), (ax[1], raw30, "30 cm")):
+        d = to_100hz(decode_file(path))
+        m = d[["thigh_l_deg", "thigh_r_deg"]].mean(axis=1)
+        m = m - np.percentile(m, 5)
+        t = d["time_s"]
+        for ev in find_sit_downs(d):
+            a.axvspan(ev["onset"] / 100, ev["end"] / 100, color=WINE, alpha=0.16, lw=0)
+        a.plot(t, m, c=WINE if lab == "30 cm" else "#33363d", lw=1.6)
+        a.set_ylabel("굽힘 (°)")
+        a.set_title(f"{lab} 의자 · 착석 10회 연속 기록", loc="left", fontsize=17, fontweight="bold",
+                    color=WINE if lab == "30 cm" else "#33363d", pad=4)
+        a.set_xlim(0, min(60, float(t.iloc[-1])))
+        a.set_yticks([0, 50, 100])
+    ax[1].set_xlabel("시간 (s)")
+    fig.tight_layout(h_pad=0.4)
+    fig.savefig(out / "fig_session.png", dpi=200, facecolor="white")
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--real", default="data/real/chair45", help="preprocess_h10.py로 만든 실측 폴더 (45 cm 착석 30회)")
@@ -464,6 +489,8 @@ def main():
     ap.add_argument("--anatomy", help="glute.png, hamstring.png가 있는 폴더 (없으면 직접 그린 근육 사용)")
     ap.add_argument("--highlight", type=int, help="후반을 빠르게 만들 실측 시행 번호 (기본: 착석 시간이 중간인 시행)")
     ap.add_argument("--late-k", type=float, default=1.5, help="후반을 몇 배 빠르게 만들지")
+    ap.add_argument("--raw45", help="45 cm 원본 기록 하나 (fig_session.png)")
+    ap.add_argument("--raw30", help="30 cm 원본 기록 하나 (fig_session.png)")
     args = ap.parse_args()
     use_palette(args.palette)
     if args.anatomy:
@@ -472,7 +499,9 @@ def main():
                 ANATOMY[kind] = Path(args.anatomy) / name
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    fig_posture(out)
+    if args.raw45 and args.raw30:
+        fig_session(Path(args.raw45), Path(args.raw30), out)
+    fig_posture(out, ink="#1e1e1e" if args.palette == "poster" else None)
     fig_terms(out)
     fig_muscles(out)
 
