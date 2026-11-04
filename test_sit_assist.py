@@ -5,7 +5,13 @@ import pytest
 
 from evaluate import calib_loo, trial_metrics
 from simulate_data import make_person, simulate_sit
-from sit_assist import Phase, Profile, SitAssistController, run_trial
+from dataclasses import replace
+
+from sit_assist import Config, Phase, Profile, SitAssistController, run_trial
+
+# 가짜 사람은 실측보다 천천히 앉아서(최대 ~50°/s) 실측으로 정한 허용 폭 하한(25°/s)과 제동 시작 지점이 맞지 않는다.
+# 여기서는 조정값이 아니라 제어 논리를 보므로 예전 값으로 돌린다.
+SIM_CFG = replace(Config(), min_sd=5.0, brake_from_ratio=0.25)
 
 
 @pytest.fixture(scope="module")
@@ -21,11 +27,11 @@ def calib(person):
 
 @pytest.fixture(scope="module")
 def profile(calib):
-    return Profile.from_trials(calib)
+    return Profile.from_trials(calib, SIM_CFG)
 
 
 def sit(person, profile, chair, weakness, shadow, seed=3):
-    ctrl = SitAssistController(profile, shadow=shadow)
+    ctrl = SitAssistController(profile, SIM_CFG, shadow=shadow)
     return simulate_sit(np.random.default_rng(seed), person, chair, weakness, ctrl)
 
 
@@ -43,14 +49,14 @@ def test_profile_save_load(profile, tmp_path):
 
 
 def test_normal_sitting_rarely_brakes(calib):
-    loo = calib_loo(calib)
+    loo = calib_loo(calib, SIM_CFG)
     assert loo.triggered.mean() <= 0.2
     assert loo.deep.sum() <= 1                  # 평소 착석 각도 +2SD라 가끔은 넘을 수 있음
     assert loo.upright.sum() <= 1
 
 
 def test_standing_still_no_torque(profile):
-    ctrl = SitAssistController(profile)
+    ctrl = SitAssistController(profile, SIM_CFG)
     rng = np.random.default_rng(0)
     for k in range(300):
         tau = ctrl.update(k / 100, 5 + rng.normal(0, 0.15), 6 + rng.normal(0, 0.15))
@@ -66,7 +72,7 @@ def test_low_chair_enters_deep(person, profile):
 def test_shadow_mode_logs_but_outputs_nothing(person, profile):
     df = sit(person, profile, "low", 1.0, shadow=True)
     assert df.tau_brake.max() > 1                               # 제동을 계산은 했지만
-    replay = run_trial(df, profile, shadow=True)                # 같은 결과가 재현됨
+    replay = run_trial(df, profile, SIM_CFG, shadow=True)                # 같은 결과가 재현됨
     assert np.allclose(replay.tau_cmd_l, df.tau_cmd_l, atol=0.01)   # 저장 시 입력 반올림 오차
 
 
@@ -75,8 +81,8 @@ def test_less_trunk_lean_flags_upright(profile, calib):
     upright = df.copy()
     base = df.trunk_deg.iloc[:50].mean()
     upright["trunk_deg"] = base + (df.trunk_deg - base) * 0.4      # 평소보다 상체를 60% 덜 숙임
-    assert (run_trial(df, profile).posture == 0).all()
-    assert (run_trial(upright, profile).posture == 1).any()
+    assert (run_trial(df, profile, SIM_CFG).posture == 0).all()
+    assert (run_trial(upright, profile, SIM_CFG).posture == 1).any()
 
 
 def test_adaptive_restores_trunk_lean(person, profile):
@@ -87,7 +93,7 @@ def test_adaptive_restores_trunk_lean(person, profile):
 
 def test_without_waist_imu_still_brakes(person, profile, calib):
     df = sit(person, profile, "low", 1.0, shadow=True).drop(columns=["trunk_deg"])
-    log = run_trial(df, profile, shadow=True)
+    log = run_trial(df, profile, SIM_CFG, shadow=True)
     assert log.tau_support.max() == 0 and log.tau_brake.max() > 5
 
 
@@ -112,5 +118,5 @@ def test_standing_up_gets_no_torque(person, profile, calib):
     rev = pd.DataFrame({"time_s": df.time_s, "thigh_l_deg": df.thigh_l_deg[::-1].to_numpy(),
                         "thigh_r_deg": df.thigh_r_deg[::-1].to_numpy(),
                         "trunk_deg": df.trunk_deg[::-1].to_numpy()})
-    log = run_trial(rev, profile, shadow=True)
+    log = run_trial(rev, profile, SIM_CFG, shadow=True)
     assert log[["tau_cmd_l", "tau_cmd_r"]].max().max() == 0

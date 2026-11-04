@@ -59,14 +59,14 @@ class Config:
     stand_depth: float = 10.0       # deg, 앉은 뒤 이만큼 펴지면 일어선 것
     # 개인 기준값
     bin_deg: float = 5.0
-    min_sd: float = 5.0             # deg/s, 표준편차가 너무 작아 예민해지는 것 방지
+    min_sd: float = 25.0            # deg/s, 정상 착석 30회도 같은 각도에서 이만큼은 흔들림 (11/4 실측)
     min_sd_ratio: float = 0.1
     min_lean_sd: float = 3.0        # deg
     # 하강 제동
-    z_weak: float = 3.5             # 이 점수부터 약한 제동 (실측 정상 착석 10회 중 8회는 3.2 이하)
+    z_weak: float = 3.5             # 이 점수부터 약한 제동
     z_strong: float = 5.0           # 이 점수부터 강한 제동
     gain: float = 2.5               # Nm / 점수
-    brake_from_ratio: float = 0.25  # 평소 착석 각도의 25%를 지나서부터 제동 (초반은 개인차·잡음이 큼)
+    brake_from_ratio: float = 0.5   # 평소 착석 각도의 절반을 지나서부터 제동 (털썩은 착석 직전에 일어남)
     deep_gain: float = 1.5          # DEEP 구간에서 gain에 곱하는 값
     deep_margin_sd: float = 2.0     # 평소 착석 각도 + 2SD를 넘으면 DEEP
     deep_min_margin: float = 3.0    # deg

@@ -107,14 +107,32 @@ def load_participant(pdir: Path) -> dict:
     return {"calib": calib, "trials": trials}
 
 
-def calib_loo(calib: list[pd.DataFrame], cfg: Config = Config()) -> pd.DataFrame:
+def speed_up_late(df: pd.DataFrame, k: float = 1.5) -> pd.DataFrame:
+    """착석 후반(허벅지가 끝 각도의 절반을 지난 뒤)만 k배 빠르게 만든 가상 시행. 털썩 주저앉기 흉내."""
+    t = df["time_s"].to_numpy()
+    m = df[["thigh_l_deg", "thigh_r_deg"]].mean(axis=1).to_numpy()
+    t0 = t[np.argmax(m > m[0] + 0.5 * (m.max() - m[0]))]
+    tn = np.arange(0.0, t0 + (t[-1] - t0) / k, 1.0 / 100)
+    src = np.where(tn < t0, tn, t0 + (tn - t0) * k)
+    out = pd.DataFrame({"time_s": tn.round(3)})
+    for c in ("thigh_l_deg", "thigh_r_deg", "trunk_deg"):
+        if c in df:
+            out[c] = np.interp(src, t, df[c].to_numpy())
+    return out
+
+
+def calib_loo(calib: list[pd.DataFrame], cfg: Config = Config(), late_k: float | None = None) -> pd.DataFrame:
     """calib 한 회씩 빼고 기준을 만들어 빼 둔 회에 돌린다 (정상 착석 오탐 확인)."""
     rows = []
     for i, df in enumerate(calib):
         prof = Profile.from_trials(calib[:i] + calib[i + 1:], cfg)
         log = run_trial(df, prof, cfg, shadow=True)
         brake = log["tau_brake"]
-        rows.append({"rep": i + 1, "peak_brake": brake.max(), "triggered": brake.max() > TRIGGER_NM,
+        row = {}
+        if late_k:      # 같은 시행의 후반만 빠르게 만들면 제동이 걸리는가 (민감도)
+            row["late_brake"] = run_trial(speed_up_late(df, late_k), prof, cfg, shadow=True)["tau_brake"].max()
+            row["late_caught"] = row["late_brake"] > TRIGGER_NM
+        rows.append({**row, "rep": i + 1, "peak_brake": brake.max(), "triggered": brake.max() > TRIGGER_NM,
                      "strong": bool((log["level"] == 2).any()),
                      "deep": bool((log["phase"] == Phase.DEEP).any()),
                      "upright": bool((log["posture"] == 1).any())})

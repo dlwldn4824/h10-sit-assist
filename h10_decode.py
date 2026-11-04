@@ -57,6 +57,10 @@ def decode_line(hex_str: str) -> list[float] | None:
 
 
 def decode_file(path: Path) -> pd.DataFrame:
+    with open(path, "rb") as f:
+        head = f.read(64)
+    if head.lstrip(b"\xef\xbb\xbf").lstrip().startswith(b"loopCnt"):   # 이미 디코딩된 CSV (H10 앱 내보내기)
+        return pd.read_csv(path, encoding="utf-8-sig")
     rows = []
     for raw in Path(path).read_bytes().split(b"\n"):
         line = raw.replace(b"\x00", b"").decode("utf-8", errors="ignore").strip()

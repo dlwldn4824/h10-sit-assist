@@ -38,8 +38,7 @@ TITLE = ("낮은 의자 착석에서 털썩 주저앉음을 줄이는", "H10 적
 TOP = "2025 <H10 Control Algorithm>"
 COURSE = "교과목명 / 제어알고리즘설계및실습(고찬영 교수님)"
 TEAM = "팀명 / KWAI"
-MEMBERS = "팀원 / 이지우, 이지석, 박수민"
-FAST_REP = 5                      # 실측에서 빠르게 앉은 시행 (make_figures.py --highlight와 같게)
+MEMBERS = "팀원 / 이지우, 이지섭, 박수민"
 
 
 # ---------------------------------------------------------------- 도형 도우미
@@ -242,17 +241,13 @@ def result_rows(metrics_csv: Path) -> list[list[str]]:
 
 
 def real_stats(real_dir: Path) -> dict:
-    """실측 착석 기록에서 포스터에 쓸 숫자를 뽑는다."""
-    from evaluate import calib_loo, load_participant, trial_metrics
+    """실측 착석 기록(45 cm, 개인 기준)과 compare_chairs.py 결과에서 포스터에 쓸 숫자를 뽑는다."""
+    from evaluate import load_participant, trial_metrics
     p = load_participant(real_dir)
     m = pd.DataFrame([trial_metrics(df) for df in p["calib"]])
-    loo = calib_loo(p["calib"])
-    log = pd.read_csv(real_dir / "extraction_log.csv")
     ch = json.loads((HERE.parent / "results" / "real" / "chair_stats.json").read_text())
-    return {"chair": ch,"n_found": len(log), "n_used": len(p["calib"]), "dur": m.descent_time.mean(),
-            "peak": m.peak_vel.mean(), "lean": m.peak_lean.mean(),
-            "quiet": int((~loo.triggered).sum()), "flagged": int(loo.triggered.sum()),
-            "fast_dur": m.descent_time.iloc[FAST_REP - 1], "fast_peak": m.peak_vel.iloc[FAST_REP - 1]}
+    return {"chair": ch, "n_used": len(p["calib"]), "dur": m.descent_time.mean(), "peak": m.peak_vel.mean(),
+            "quiet": ch["brake_quiet45"], "late": ch["late_caught45"], "late_k": ch["late_k"]}
 
 
 # ---------------------------------------------------------------- 포스터
@@ -354,7 +349,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
         y += 3.6
     text(s, L + 1.0, 78.2, 39.6, 6.0, [
         {"t": [("개인 기준", W_)], "size": 23, "space_after": 2},
-        {"t": f"보조 없이 앉은 {st['n_used']}회를 허벅지 각도 5°마다 나눠 평소 속도와 흔들림 폭, 상체 숙임을 저장한다. "
+        {"t": f"보조 없이 45 cm 의자에 앉은 {st['n_used']}회를 허벅지 각도 5°마다 나눠 평소 속도와 흔들림 폭, 상체 숙임을 저장한다. "
               "사람마다 '빠르다'의 기준이 다르기 때문이다.", "size": 21, "color": SUBG}], space_after=0)
 
     card(s, 45.8, 61.0, 41.6, 23.6)
@@ -370,13 +365,13 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     # 04 검증 -----------------------------------------------------------------------
     head(s, L, 86.4, 45.0, "04", "VALIDATION", "실측 착석을 알고리즘에 다시 재생했다", size=36)
     picture(s, figs / "fig_trial_real.png", L, 90.3, 25.0)
-    stats4 = [(f"{st['n_used']}회", "30 cm 의자 착석으로 개인 기준을 만들었다"),
-              (f"{st['quiet']}/{st['n_used']}", "정상 착석에서는 제동이 걸리지 않았다"),
+    stats4 = [(f"{st['quiet']}/{st['n_used']}", "45 cm 정상 착석에서는 제동이 걸리지 않았다"),
+              (f"{st['late']}/{st['n_used']}", f"후반을 {st['late_k']:g}배 빠르게 만든 가상 착석에서 제동했다"),
               (f"{st['chair']['deep30']}/{st['chair']['n30']}", "30 cm 착석을 낮은 의자로 감지했다")]
     for i, (big, label) in enumerate(stats4):
         stat(s, 28.4, 90.3 + i * 6.05, 19.2, 5.6, big, label)
     text(s, L, 108.6, 45.0, 6.0, [
-        {"t": "그래프: 빠르게 앉은 rep05를 나머지 9회 기준에 재생 (토크는 계산값).   "
+        {"t": f"그래프: 45 cm 착석 한 회의 후반을 {st['late_k']:g}배 빠르게 만든 가상 착석을 나머지 {st['n_used'] - 1}회 기준에 재생 (토크는 계산값).   "
               "고관절 신전근: 대둔근 · 햄스트링.   편심성 수축: 근육이 늘어나면서 힘을 내는 수축.", "size": 13},
         {"t": "[1] Robinovitch SN et al. Lancet. 2013;381:47–54.  [2] Chen LK et al. JAMDA. 2020;21:300–307.  "
               "[3] Yoshioka S et al. BioMed Eng OnLine. 2014;13:27.  [5] Dubost V et al. Phys Ther. 2005;85:404–412.  "
@@ -418,7 +413,7 @@ def main():
     ap.add_argument("--figs", default=str(HERE / "figs"))
     ap.add_argument("--assets", default=str(HERE / "assets"))   # 발표 자료 이미지(H10 · 할머니 · 근육), 저장소에 올리지 않음
     ap.add_argument("--metrics", default=str(HERE.parent / "results" / "real" / "chair_metrics.csv"))
-    ap.add_argument("--real", default=str(HERE.parent / "data" / "real" / "chair30"))
+    ap.add_argument("--real", default=str(HERE.parent / "data" / "real" / "chair45"))
     args = ap.parse_args()
     build(Path(args.template), Path(args.out), Path(args.figs), Path(args.metrics), Path(args.real), Path(args.assets))
 

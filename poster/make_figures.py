@@ -19,7 +19,7 @@ import pandas as pd
 
 HERE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HERE_ROOT))
-from evaluate import descent_window, load_participant, offline_kinematics  # noqa: E402
+from evaluate import descent_window, load_participant, offline_kinematics, speed_up_late  # noqa: E402
 from sit_assist import Config, Phase, Profile, run_trial  # noqa: E402
 
 matplotlib.rcParams.update({"font.family": "AppleGothic", "axes.unicode_minus": False,
@@ -305,16 +305,20 @@ def fig_muscles(out: Path):
 
 # ---------------------------------------------------------------- 2. 개인 기준값
 
-def fig_profile(p: dict, prof: Profile, out: Path, cfg: Config = Config(), highlight: int | None = None):
+def fig_profile(p: dict, prof: Profile, out: Path, cfg: Config = Config(), highlight: int | None = None,
+                extra: pd.DataFrame | None = None, extra_label: str = ""):
     fig, ax = plt.subplots(1, 2, figsize=(14, 5.4))
     c = np.array(prof.centers)
-    for k, df in enumerate(p["calib"]):
+    trials = list(p["calib"]) + ([extra] if extra is not None else [])
+    if extra is not None:
+        highlight = len(trials) - 1
+    for k, df in enumerate(trials):
         s = run_trial(df, prof, cfg)
         m = s["phase"].isin([Phase.DESCENT, Phase.DEEP])
         d = s.loc[m, ["dtheta_l", "dtheta_r"]].mean(axis=1)
         hl = k == highlight
         style = dict(c=RED if hl else GRAY, lw=2.2 if hl else 1.0, alpha=1 if hl else 0.7, zorder=3 if hl else 1,
-                     label=f"빠르게 앉은 시행 (rep{k + 1:02d})" if hl else None)
+                     label=(extra_label or f"빠르게 앉은 시행 (rep{k + 1:02d})") if hl else None)
         ax[0].plot(d, s.loc[m, ["omega_l", "omega_r"]].mean(axis=1), **style)
         ax[1].plot(d, s.loc[m, "lean"], **{**style, "label": None})
     mu, sd = (np.array(prof.mu_l) + prof.mu_r) / 2, (np.array(prof.sd_l) + prof.sd_r) / 2
@@ -453,12 +457,13 @@ def fig_trial(df: pd.DataFrame, prof: Profile, out: Path, cfg: Config = Config()
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--real", default="data/real/chair30", help="preprocess_h10.py로 만든 실측 폴더 (30 cm 착석 10회)")
+    ap.add_argument("--real", default="data/real/chair45", help="preprocess_h10.py로 만든 실측 폴더 (45 cm 착석 30회)")
     ap.add_argument("--sim", default="data/sim/P01", help="실측 기반 시뮬레이션 참가자 폴더")
     ap.add_argument("--out", default="poster/figs")
     ap.add_argument("--palette", choices=["poster", "slides"], default="poster")
     ap.add_argument("--anatomy", help="glute.png, hamstring.png가 있는 폴더 (없으면 직접 그린 근육 사용)")
-    ap.add_argument("--highlight", type=int, default=5, help="실측에서 강조할 시행 번호")
+    ap.add_argument("--highlight", type=int, help="후반을 빠르게 만들 실측 시행 번호 (기본: 착석 시간이 중간인 시행)")
+    ap.add_argument("--late-k", type=float, default=1.5, help="후반을 몇 배 빠르게 만들지")
     args = ap.parse_args()
     use_palette(args.palette)
     if args.anatomy:
@@ -473,12 +478,15 @@ def main():
 
     real = load_participant(Path(args.real))
     prof = Profile.from_trials(real["calib"])
-    fig_profile(real, prof, out, highlight=args.highlight - 1)
-    # 강조할 시행은 그 시행을 뺀 나머지로 만든 기준에 넣는다 (자기 자신이 기준에 섞이지 않게)
-    k = args.highlight - 1
-    df = real["calib"][k]
-    loo = Profile.from_trials(real["calib"][:k] + real["calib"][k + 1:])
-    fig_trial(df, loo, out, name="fig_trial_real.png", window=(0.9, float(df["time_s"].iloc[-1])))
+    # 실측에는 털썩 앉은 시행이 없어서, 평범한 시행 하나의 후반만 빠르게 만든 가상 시행으로 반응을 보인다
+    durs = [float(df["time_s"].iloc[-1]) for df in real["calib"]]
+    k = args.highlight - 1 if args.highlight else int(np.argsort(durs)[len(durs) // 2])
+    fast = speed_up_late(real["calib"][k], args.late_k)
+    loo = Profile.from_trials(real["calib"][:k] + real["calib"][k + 1:])     # 자기 자신이 기준에 섞이지 않게
+    label = f"후반 {args.late_k:g}배 빠른 가상 착석 (rep{k + 1:02d})"
+    fig_profile(real, loo, out, extra=fast, extra_label=label)
+    fig_trial(fast, loo, out, name="fig_trial_real.png", window=(0.4, float(fast["time_s"].iloc[-1])))
+    print(f"강조 시행: rep{k + 1:02d}, 후반 {args.late_k:g}배")
 
     chair_stats = HERE_ROOT / "results" / "real" / "chair_stats.json"
     if chair_stats.exists():

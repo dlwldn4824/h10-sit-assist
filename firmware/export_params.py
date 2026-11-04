@@ -2,7 +2,7 @@
 
     python firmware/export_params.py --profile results/real/profile_45ref.json
 
-profile_45ref.json = 30 cm 착석 10회의 하강 속도 기준 + 45 cm 착석 각도(DEEP 기준). compare_chairs.py가 만든다.
+profile_45ref.json = 45 cm 착석 30회로 만든 개인 기준(하강 속도 + 착석 각도). compare_chairs.py가 만든다.
 """
 from __future__ import annotations
 
