@@ -480,6 +480,77 @@ def fig_session(raw45: Path, raw30: Path, out: Path):
     plt.close(fig)
 
 
+def fig_design(real: dict, out: Path, late_k: float = 1.5):
+    """설계 근거: (a) 정상 착석끼리의 속도 편차와 제동 구간, (b) 설계 전후 정상/가속 착석의 최대 이상 점수."""
+    from dataclasses import replace as _r
+    from evaluate import speed_up_late
+    calib = real["calib"]
+    new = Config()
+    old = _r(new, min_sd=5.0, brake_from_ratio=0.25)
+    prof = Profile.from_trials(calib, new)
+    c = np.array(prof.centers)
+    mu = (np.array(prof.mu_l) + prof.mu_r) / 2
+    raw_sd = []
+    for cfg_ in (old,):
+        p_ = Profile.from_trials(calib, cfg_)
+        raw_sd = (np.array(p_.sd_l) + p_.sd_r) / 2
+    fig, ax = plt.subplots(2, 1, figsize=(6.4, 7.6), gridspec_kw={"height_ratios": [1, 1.05]})
+    a = ax[0]
+    for df in calib:
+        lg = run_trial(df, prof, new)
+        m = lg["phase"].isin([Phase.DESCENT, Phase.DEEP])
+        a.plot(lg.loc[m, ["dtheta_l", "dtheta_r"]].mean(axis=1), lg.loc[m, ["omega_l", "omega_r"]].mean(axis=1),
+               c="#b9bcc2", lw=0.8)
+    zt = new.z_weak + 1.0 / new.gain                      # 제동 1 Nm가 되는 점수
+    sd_new = (np.array(prof.sd_l) + prof.sd_r) / 2
+    a.plot(c, mu, c="#33363d", lw=2.5, label="평균 속도")
+    a.plot(c, mu + zt * raw_sd, c="#8c9096", lw=2, ls="--", label="기존 제동 경계")
+    a.plot(c, mu + zt * sd_new, c=WINE, lw=2.4, label="수정 제동 경계")
+    half = new.brake_from_ratio * prof.contact_mean
+    a.axvspan(half, prof.contact_mean, color="#ffe98a", alpha=0.35, lw=0)
+    a.set_ylim(-20, 330)
+    a.text(half + 1, 322, "수정 제동 구간 (후반 50%)", fontsize=12, va="top")
+    a.set_xlabel("허벅지 굽힘 Δθ (°)")
+    a.set_ylabel("굽힘 속도 (°/s)")
+    a.set_title("(a) 정상 착석 30회의 속도 편차", loc="left", fontsize=16, fontweight="bold")
+    a.legend(loc="upper left", frameon=False, fontsize=11, ncol=1, bbox_to_anchor=(0.0, 1.02))
+
+    def peak_z(cfg_, df, prof_):
+        lg = run_trial(df, prof_, cfg_)
+        on = lg["tau_brake"] > 0           # 제동 구간 안의 점수만 (구간 밖은 0)
+        return float(lg.loc[on, ["z_l", "z_r"]].max(axis=1).max()) if on.any() else \
+            float(lg[["z_l", "z_r"]].max(axis=1).clip(upper=new.z_weak).max())
+
+    rows = []
+    for name, cfg_ in (("기존 설정", old), ("수정 설정", new)):
+        for i, df in enumerate(calib):
+            pr = Profile.from_trials(calib[:i] + calib[i + 1:], cfg_)
+            rows.append((name, "정상 착석", peak_z(cfg_, df, pr)))
+            rows.append((name, f"후반 {late_k:g}배 가속", peak_z(cfg_, speed_up_late(df, late_k), pr)))
+    a = ax[1]
+    rng = np.random.default_rng(0)
+    for k, name in enumerate(("기존 설정", "수정 설정")):
+        for j, (kind, col) in enumerate((("정상 착석", "#8c9096"), (f"후반 {late_k:g}배 가속", WINE))):
+            z = np.array([r[2] for r in rows if r[0] == name and r[1] == kind])
+            x = k * 2.6 + j + rng.uniform(-0.22, 0.22, len(z))
+            a.scatter(x, np.clip(z, 0, 14), s=26, c=col, alpha=0.85, lw=0,
+                      label=kind if k == 0 else None)
+            over = int((z > zt).sum())
+            a.text(k * 2.6 + j, 14.6, f"제동 {over}/{len(z)}", ha="center", fontsize=12, color=col, fontweight="bold")
+    a.axhline(zt, c="#33363d", ls="--", lw=1.2)
+    a.text(1.25, zt - 0.35, "제동 1 Nm 기준", ha="center", va="top", fontsize=12, color="#33363d")
+    a.set_xticks([0.5, 3.1])
+    a.set_xticklabels(["기존 설정", "수정 설정"], fontsize=14)
+    a.set_ylim(0, 15.6)
+    a.set_xlim(-0.6, 4.2)
+    a.set_ylabel("최대 이상 점수 z")
+    a.set_title("(b) 설정 수정 전후 제동 판정", loc="left", fontsize=16, fontweight="bold")
+    a.legend(loc="upper center", bbox_to_anchor=(0.58, 0.82), frameon=False, fontsize=11)
+    fig.tight_layout(h_pad=1.2)
+    fig.savefig(out / "fig_design.png", dpi=200, facecolor="white")
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--real", default="data/real/chair45", help="preprocess_h10.py로 만든 실측 폴더 (45 cm 착석 30회)")
@@ -514,6 +585,7 @@ def main():
     loo = Profile.from_trials(real["calib"][:k] + real["calib"][k + 1:])     # 자기 자신이 기준에 섞이지 않게
     label = f"후반 {args.late_k:g}배 빠른 가상 착석 (rep{k + 1:02d})"
     fig_profile(real, loo, out, extra=fast, extra_label=label)
+    fig_design(real, out, args.late_k)
     fig_trial(fast, loo, out, name="fig_trial_real.png", window=(0.4, float(fast["time_s"].iloc[-1])))
     print(f"강조 시행: rep{k + 1:02d}, 후반 {args.late_k:g}배")
 
