@@ -554,6 +554,33 @@ def fig_design(real: dict, out: Path, late_k: float = 1.5):
     plt.close(fig)
 
 
+def fig_armrest(d45: Path, darm: Path, out: Path, cfg: Config = Config()):
+    """부록: 팔걸이를 짚고 앉을 때와 그냥 앉을 때의 하강 속도 (착석 시작부터 엉덩이가 닿을 때까지)."""
+    fig, ax = plt.subplots(1, 2, figsize=(13, 4.8))
+    for path, col, lab in ((d45, "#8c9096", "그냥 앉기 (45 cm)"), (darm, WINE, "팔걸이 짚고 앉기")):
+        trials = load_participant(path)["calib"]
+        first = True
+        for df in trials:
+            k = offline_kinematics(df, cfg.fs)
+            s0, e = descent_window(k, None, cfg)
+            t = k["t"][s0:e + 1] - k["t"][s0]
+            ax[0].plot(t, k["wm"][s0:e + 1], c=col, lw=1, alpha=0.55, label=lab if first else None)
+            ax[0].scatter(t[-1], k["wm"][e], s=14, c=col, zorder=3)
+            if k["lean"] is not None:
+                ax[1].plot(t, k["lean"][s0:e + 1], c=col, lw=1, alpha=0.55)
+            first = False
+    ax[0].set_xlabel("착석 시작 후 시간 (s)")
+    ax[0].set_ylabel("허벅지 굽힘 속도 (°/s)")
+    ax[0].set_title("하강 속도 (점: 엉덩이가 닿는 순간)", loc="left", fontsize=17)
+    ax[0].legend(frameon=False, loc="upper right")
+    ax[1].set_xlabel("착석 시작 후 시간 (s)")
+    ax[1].set_ylabel("상체 숙임 (°)")
+    ax[1].set_title("상체 숙임", loc="left", fontsize=17)
+    fig.tight_layout()
+    fig.savefig(out / "fig_armrest.png", dpi=200, facecolor="white")
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--real", default="data/real/chair45", help="preprocess_h10.py로 만든 실측 폴더 (45 cm 착석 30회)")
@@ -589,6 +616,9 @@ def main():
     label = f"후반 {args.late_k:g}배 빠른 가상 착석 (rep{k + 1:02d})"
     fig_profile(real, prof, out)                    # 개인 기준은 실측 착석만으로 그린다
     fig_design(real, out, args.late_k)
+    arm = HERE_ROOT / "data" / "real" / "1104_armrest"
+    if arm.exists():
+        fig_armrest(Path(args.real), arm, out)
     fig_trial(fast, loo, out, name="fig_trial_real.png", window=(0.4, float(fast["time_s"].iloc[-1])))
     print(f"강조 시행: rep{k + 1:02d}, 후반 {args.late_k:g}배")
 
