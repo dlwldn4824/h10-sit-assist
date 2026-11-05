@@ -39,13 +39,14 @@ def build(tmp: Path, double: bool) -> ctypes.CDLL:
 
 def run_c(lib, df: pd.DataFrame, double: bool) -> np.ndarray:
     real = ctypes.c_double if double else ctypes.c_float
-    lib.sa_update_100hz.argtypes = [ctypes.c_void_p, real, real, real, real, ctypes.c_int, ctypes.POINTER(real)]
+    lib.sa_update_100hz.argtypes = [ctypes.c_void_p, real, real, real, real, real, ctypes.c_int, ctypes.POINTER(real)]
     state = ctypes.create_string_buffer(lib.sa_state_size())
     lib.sa_init(state)
     out = (real * 2)()
     taus = []
-    for tl, tr, tk in zip(df.thigh_l_deg, df.thigh_r_deg, df.trunk_deg):
-        lib.sa_update_100hz(state, tl, tr, tk, float("nan"), 0, out)
+    acc = df["acc_ms2"] if "acc_ms2" in df else [float("nan")] * len(df)
+    for tl, tr, tk, ac in zip(df.thigh_l_deg, df.thigh_r_deg, df.trunk_deg, acc):
+        lib.sa_update_100hz(state, tl, tr, tk, float("nan"), ac, 0, out)
         taus.append((out[0], out[1]))
     return np.array(taus)
 

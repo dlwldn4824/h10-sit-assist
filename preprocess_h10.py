@@ -35,12 +35,20 @@ def to_100hz(df: pd.DataFrame) -> pd.DataFrame:
     k = RAW_FS // FS
     n = len(df) // k * k
     cols = ["thighDeg_LH", "thighDeg_RH", "incPosDeg_LH", "incPosDeg_RH", "u_LH", "u_RH"]
-    x = df[cols].to_numpy(dtype=float)[:n].reshape(-1, k, len(cols)).mean(axis=1)
-    out = pd.DataFrame(x, columns=cols)
+    imu = [c for c in ("accX_Calib_LH", "accY_Calib_LH", "accX_Calib_RH", "accY_Calib_RH",
+                       "gyroZ_Calib_LH", "gyroZ_Calib_RH") if c in df]
+    x = df[cols + imu].to_numpy(dtype=float)[:n].reshape(-1, k, len(cols) + len(imu)).mean(axis=1)
+    out = pd.DataFrame(x, columns=cols + imu)
     out.insert(0, "time_s", np.arange(len(out)) / FS)
     out["thigh_l_deg"] = out["thighDeg_LH"]
     out["thigh_r_deg"] = out["thighDeg_RH"]
     out["trunk_deg"] = ((out["incPosDeg_LH"] - out["thighDeg_LH"]) + (out["incPosDeg_RH"] - out["thighDeg_RH"])) / 2
+    if len(imu) == 6:
+        # 허벅지 IMU 가속도 크기(좌우 평균): 엉덩이가 의자에 닿는 순간 충격이 튄다
+        out["acc_ms2"] = (np.hypot(out["accX_Calib_LH"], out["accY_Calib_LH"])
+                          + np.hypot(out["accX_Calib_RH"], out["accY_Calib_RH"])) / 2
+        # gyroZ는 허벅지가 아니라 골반 · 상체의 앞뒤 기울기 속도와 거의 같다 (r ≈ 0.95)
+        out["pelvis_gyro_dps"] = (out["gyroZ_Calib_LH"] + out["gyroZ_Calib_RH"]) / 2
     return out
 
 
@@ -86,7 +94,9 @@ def extract(files: list[Path], out: Path, include_assist: bool = False) -> pd.Da
                     "assist_on": assisted, "used": include_assist or not assisted}
             if info["used"]:
                 rep += 1
-                seg = d.iloc[a:b][["time_s", "thigh_l_deg", "thigh_r_deg", "trunk_deg"]].copy()
+                keep = ["time_s", "thigh_l_deg", "thigh_r_deg", "trunk_deg"] + \
+                    [c for c in ("acc_ms2", "pelvis_gyro_dps") if c in d]
+                seg = d.iloc[a:b][keep].copy()
                 seg["time_s"] = (seg["time_s"] - seg["time_s"].iloc[0]).round(3)
                 name = f"calib_rep{rep:02d}.csv"
                 seg.round(3).to_csv(out / name, index=False)

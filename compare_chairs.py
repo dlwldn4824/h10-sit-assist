@@ -20,7 +20,7 @@ import pandas as pd
 from evaluate import TRIGGER_NM, calib_loo, load_participant, offline_kinematics, descent_window, trial_metrics
 from sit_assist import Config, Phase, Profile, run_trial, segment_trial
 
-LATE_K = 1.5
+LATE_K = 2.0
 
 
 def contact_angle(df: pd.DataFrame, cfg: Config = Config()) -> float:

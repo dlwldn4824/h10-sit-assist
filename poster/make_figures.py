@@ -562,7 +562,7 @@ def main():
     ap.add_argument("--palette", choices=["poster", "slides"], default="poster")
     ap.add_argument("--anatomy", help="glute.png, hamstring.png가 있는 폴더 (없으면 직접 그린 근육 사용)")
     ap.add_argument("--highlight", type=int, help="후반을 빠르게 만들 실측 시행 번호 (기본: 착석 시간이 중간인 시행)")
-    ap.add_argument("--late-k", type=float, default=1.5, help="후반을 몇 배 빠르게 만들지")
+    ap.add_argument("--late-k", type=float, default=2.0, help="후반을 몇 배 빠르게 만들지")
     ap.add_argument("--raw45", help="45 cm 원본 기록 하나 (fig_session.png)")
     ap.add_argument("--raw30", help="30 cm 원본 기록 하나 (fig_session.png)")
     args = ap.parse_args()

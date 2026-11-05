@@ -42,6 +42,19 @@ static sa_real biquad(SA_Biquad *f, sa_real x)
     return y;
 }
 
+static sa_real highpass(SA_Highpass *f, sa_real x)
+{
+    if (!f->init) {              /* 첫 값에서 출력 0으로 시작 */
+        f->x1 = x;
+        f->y1 = 0;
+        f->init = 1;
+    }
+    sa_real y = SA_ACC_HP_B0 * x + SA_ACC_HP_B1 * f->x1 - SA_ACC_HP_A1 * f->y1;
+    f->x1 = x;
+    f->y1 = y;
+    return y;
+}
+
 static void kin_step(SA_Kin *k, sa_real x, sa_real *th, sa_real *w, sa_real *a)
 {
     *th = biquad(&k->f_angle, x);
@@ -65,7 +78,7 @@ void sa_init(SA_State *s)
 
 /* Segmenter.update: 서 있을 때 대비 굴곡 각도 d[2]와 상체 숙임 lean을 돌려준다 */
 static void segment(SA_State *s, const sa_real th[2], const sa_real w[2], sa_real seat, sa_real trunk,
-                    sa_real d[2], sa_real *lean)
+                    sa_real impact, sa_real d[2], sa_real *lean)
 {
     if (!s->stand_init) {
         s->stand[0] = th[0]; s->stand[1] = th[1]; s->stand_trunk = trunk;
@@ -93,6 +106,8 @@ static void segment(SA_State *s, const sa_real th[2], const sa_real w[2], sa_rea
     } else if (s->phase == SA_DESCENT || s->phase == SA_DEEP) {
         if (!isnan(seat)) {                      /* 의자 압력센서가 있으면 그것을 믿는다 */
             if (seat > 0.5) s->phase = SA_SEATED;
+        } else if (!isnan(impact) && impact > SA_IMPACT_THR && dm > SA_MIN_SEAT_DEPTH) {
+            s->phase = SA_SEATED;                /* IMU 충격 = 엉덩이가 의자에 닿음 */
         } else if (fabs(wm) < SA_SEAT_VEL && dm > SA_MIN_SEAT_DEPTH) {
             if (++s->n_seat >= SA_SEAT_HOLD) s->phase = SA_SEATED;
         } else {
@@ -106,7 +121,7 @@ static void segment(SA_State *s, const sa_real th[2], const sa_real w[2], sa_rea
     }
 }
 
-void sa_update_100hz(SA_State *s, sa_real thigh_l, sa_real thigh_r, sa_real trunk_in, sa_real seat,
+void sa_update_100hz(SA_State *s, sa_real thigh_l, sa_real thigh_r, sa_real trunk_in, sa_real seat, sa_real acc,
                      int shadow, sa_real out[2])
 {
     sa_real th[2], w[2], a[2], d[2], lean;
@@ -114,7 +129,8 @@ void sa_update_100hz(SA_State *s, sa_real thigh_l, sa_real thigh_r, sa_real trun
     kin_step(&s->kin[1], thigh_r, &th[1], &w[1], &a[1]);
     int has_trunk = !isnan(trunk_in) && SA_HAS_LEAN;
     sa_real trunk = has_trunk ? biquad(&s->f_trunk, trunk_in) : NAN;
-    segment(s, th, w, seat, trunk, d, &lean);
+    s->impact = isnan(acc) ? NAN : highpass(&s->f_acc, acc);
+    segment(s, th, w, seat, trunk, s->impact, d, &lean);
 
     sa_real dm = (d[0] + d[1]) / 2, wm = (w[0] + w[1]) / 2;
     if (s->phase == SA_DESCENT && dm > SA_DEEP_THRESHOLD) s->phase = SA_DEEP;
@@ -166,8 +182,9 @@ void sa_update_100hz(SA_State *s, sa_real thigh_l, sa_real thigh_r, sa_real trun
 }
 
 void sa_step_1khz(SA_State *s, float thighDeg_LH, float thighDeg_RH, float incPosDeg_LH, float incPosDeg_RH,
-                  float tau_out[2])
+                  float accX_LH, float accY_LH, float accX_RH, float accY_RH, float tau_out[2])
 {
+    s->acc_imu += (sqrt(accX_LH * accX_LH + accY_LH * accY_LH) + sqrt(accX_RH * accX_RH + accY_RH * accY_RH)) / 2;
     s->acc_th[0] += thighDeg_LH;
     s->acc_th[1] += thighDeg_RH;
     s->acc_inc[0] += incPosDeg_LH;
@@ -176,9 +193,9 @@ void sa_step_1khz(SA_State *s, float thighDeg_LH, float thighDeg_RH, float incPo
         sa_real tl = s->acc_th[0] / 10, tr = s->acc_th[1] / 10;
         sa_real trunk = ((s->acc_inc[0] / 10 - tl) + (s->acc_inc[1] / 10 - tr)) / 2;
         sa_real out[2];
-        sa_update_100hz(s, tl, tr, trunk, NAN, SA_SHADOW, out);
+        sa_update_100hz(s, tl, tr, trunk, NAN, s->acc_imu / 10, SA_SHADOW, out);
         s->sub = 0;
-        s->acc_th[0] = s->acc_th[1] = s->acc_inc[0] = s->acc_inc[1] = 0;
+        s->acc_th[0] = s->acc_th[1] = s->acc_inc[0] = s->acc_inc[1] = s->acc_imu = 0;
     }
     tau_out[0] = (float)s->out[0];
     tau_out[1] = (float)s->out[1];

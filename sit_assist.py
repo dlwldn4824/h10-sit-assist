@@ -55,6 +55,10 @@ class Config:
     onset_hold_s: float = 0.1
     seat_vel: float = 8.0           # 압력센서가 없을 때: |ω|가 이보다 작으면 앉은 것 (앉은 뒤에도 몸이 조금 흔들림)
     seat_hold_s: float = 0.15
+    # 허벅지 IMU 가속도로 착석 순간 확인: 엉덩이가 닿을 때 가속도 크기가 튄다 (11/4 실측 60회 모두 3 m/s² 이상,
+    # 내려가는 중에는 최대 2.8 m/s²). 각도만 볼 때보다 약 0.4초 빨리 착석을 알아챈다.
+    accel_hp_hz: float = 1.0        # 가속도 크기의 느린 변화(자세에 따른 중력 방향)를 빼는 고역통과
+    impact_thr: float = 3.0         # m/s²
     min_seat_depth: float = 20.0    # deg, 이보다 얕게 멈추면 앉은 것으로 보지 않음
     stand_depth: float = 10.0       # deg, 앉은 뒤 이만큼 펴지면 일어선 것
     # 개인 기준값
@@ -105,6 +109,22 @@ class _Lowpass:
         return y
 
 
+class _Highpass:
+    """1차 Butterworth 고역통과. 첫 값에서 출력 0으로 시작한다."""
+
+    def __init__(self, fs: float, cutoff: float):
+        b, a = butter(1, cutoff / (fs / 2), btype="high")
+        self.b0, self.b1, self.a1 = b[0], b[1], a[1]
+        self.x1 = self.y1 = None
+
+    def __call__(self, x: float) -> float:
+        if self.x1 is None:
+            self.x1, self.y1 = x, 0.0
+        y = self.b0 * x + self.b1 * self.x1 - self.a1 * self.y1
+        self.x1, self.y1 = x, y
+        return y
+
+
 class Kinematics:
     """한쪽 허벅지 각도 → (필터된 각도, 각속도, 각가속도). 인과적(실시간용)."""
 
@@ -137,7 +157,7 @@ class Segmenter:
         self._cand_t = None
 
     def update(self, t: float, th: np.ndarray, w: np.ndarray, seat: float,
-               trunk: float = np.nan) -> tuple[np.ndarray, float]:
+               trunk: float = np.nan, impact: float = np.nan) -> tuple[np.ndarray, float]:
         """서 있을 때 대비 허벅지 굴곡 Δθ (좌, 우)와 상체 숙임 Δ를 돌려준다."""
         c = self.cfg
         hold_on = round(c.onset_hold_s * c.fs)
@@ -167,6 +187,8 @@ class Segmenter:
             if not np.isnan(seat):                        # 의자 압력센서가 있으면 그것을 믿는다
                 if seat > 0.5:
                     self.phase, self.contact_t = Phase.SEATED, t
+            elif not np.isnan(impact) and impact > c.impact_thr and dm > c.min_seat_depth:
+                self.phase, self.contact_t = Phase.SEATED, t      # IMU 충격 = 엉덩이가 의자에 닿음
             elif abs(wm) < c.seat_vel and dm > c.min_seat_depth:
                 self._n_seat += 1
                 if self._n_seat == 1:
@@ -200,7 +222,8 @@ def segment_trial(df: pd.DataFrame, cfg: Config = Config()) -> dict:
     seg = Segmenter(cfg)
     t = df["time_s"].to_numpy(dtype=float)
     thighs = df[["thigh_l_deg", "thigh_r_deg"]].to_numpy(dtype=float)
-    trunk, seat = _column(df, "trunk_deg"), _column(df, "seat")
+    trunk, seat, acc = _column(df, "trunk_deg"), _column(df, "seat"), _column(df, "acc_ms2")
+    f_acc = _Highpass(cfg.fs, cfg.accel_hp_hz)
     n = len(t)
     d, w, a = np.zeros((n, 2)), np.zeros((n, 2)), np.zeros((n, 2))
     lean = np.full(n, np.nan)
@@ -211,7 +234,8 @@ def segment_trial(df: pd.DataFrame, cfg: Config = Config()) -> dict:
         w[k] = [o[1] for o in out]
         a[k] = [o[2] for o in out]
         tr = f_trunk(trunk[k]) if not np.isnan(trunk[k]) else np.nan
-        d[k], lean[k] = seg.update(t[k], th, w[k], seat[k], tr)
+        imp = f_acc(acc[k]) if not np.isnan(acc[k]) else np.nan
+        d[k], lean[k] = seg.update(t[k], th, w[k], seat[k], tr, imp)
         if onset_t is None and seg.onset_t is not None:
             onset_t = seg.onset_t
         if onset_t is not None and contact_t is None and seg.contact_t is not None:
@@ -338,13 +362,16 @@ class SitAssistController:
         self.p, self.cfg, self.shadow = profile, cfg, shadow
         self.kin = [Kinematics(cfg), Kinematics(cfg)]
         self.f_trunk = _Lowpass(cfg.fs, cfg.trunk_cutoff_hz)
+        self.f_acc = _Highpass(cfg.fs, cfg.accel_hp_hz)
         self.seg = Segmenter(cfg)
         self.tau = np.zeros(2)
         self.deep_thr = profile.deep_threshold(cfg)
         self.info: dict = {}
 
     def update(self, t: float, thigh_l: float, thigh_r: float,
-               trunk: float | None = None, seat: float | None = None) -> tuple[float, float]:
+               trunk: float | None = None, seat: float | None = None,
+               acc: float | None = None) -> tuple[float, float]:
+        """acc: 허벅지 IMU 가속도 크기(m/s², 좌우 평균). 있으면 착석 순간 판정에 쓴다."""
         c, p = self.cfg, self.p
         out = [self.kin[0](thigh_l), self.kin[1](thigh_r)]
         th = np.array([o[0] for o in out])
@@ -352,7 +379,8 @@ class SitAssistController:
         a = np.array([o[2] for o in out])
         has_trunk = trunk is not None and not np.isnan(trunk) and p.lean_mu is not None
         tr = self.f_trunk(trunk) if has_trunk else np.nan
-        d, lean = self.seg.update(t, th, w, np.nan if seat is None else float(seat), tr)
+        impact = self.f_acc(acc) if acc is not None and not np.isnan(acc) else np.nan
+        d, lean = self.seg.update(t, th, w, np.nan if seat is None else float(seat), tr, impact)
 
         if self.seg.phase == Phase.DESCENT and d.mean() > self.deep_thr:
             self.seg.phase = Phase.DEEP
@@ -402,7 +430,7 @@ class SitAssistController:
                      "dtheta_l": d[0], "dtheta_r": d[1], "omega_l": w[0], "omega_r": w[1],
                      "alpha_l": a[0], "alpha_r": a[1], "omega_ref_l": ref[0], "omega_ref_r": ref[1],
                      "z_l": z[0], "z_r": z[1], "lean": lean, "lean_ref": lean_ref,
-                     "tau_support": support, "tau_brake": brake.max(),
+                     "impact": impact, "tau_support": support, "tau_brake": brake.max(),
                      "tau_cmd_l": self.tau[0], "tau_cmd_r": self.tau[1]}
         if self.shadow:
             return 0.0, 0.0
@@ -413,9 +441,10 @@ def run_trial(df: pd.DataFrame, profile: Profile, cfg: Config = Config(),
               shadow: bool = True) -> pd.DataFrame:
     """기록된 시행에 컨트롤러를 그대로 다시 돌려 샘플별 판단 기록을 만든다."""
     ctrl = SitAssistController(profile, cfg, shadow=shadow)
-    trunk, seat = _column(df, "trunk_deg"), _column(df, "seat")
+    trunk, seat, acc = _column(df, "trunk_deg"), _column(df, "seat"), _column(df, "acc_ms2")
     rows = []
-    for t, tl, tr, tk, s in zip(df["time_s"], df["thigh_l_deg"], df["thigh_r_deg"], trunk, seat):
-        ctrl.update(t, tl, tr, None if np.isnan(tk) else tk, None if np.isnan(s) else s)
+    for t, tl, tr, tk, s, ac in zip(df["time_s"], df["thigh_l_deg"], df["thigh_r_deg"], trunk, seat, acc):
+        ctrl.update(t, tl, tr, None if np.isnan(tk) else tk, None if np.isnan(s) else s,
+                    None if np.isnan(ac) else ac)
         rows.append({"time_s": t, **ctrl.info})
     return pd.DataFrame(rows)

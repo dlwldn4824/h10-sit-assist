@@ -115,7 +115,7 @@ def speed_up_late(df: pd.DataFrame, k: float = 1.5) -> pd.DataFrame:
     tn = np.arange(0.0, t0 + (t[-1] - t0) / k, 1.0 / 100)
     src = np.where(tn < t0, tn, t0 + (tn - t0) * k)
     out = pd.DataFrame({"time_s": tn.round(3)})
-    for c in ("thigh_l_deg", "thigh_r_deg", "trunk_deg"):
+    for c in ("thigh_l_deg", "thigh_r_deg", "trunk_deg", "acc_ms2", "pelvis_gyro_dps"):
         if c in df:
             out[c] = np.interp(src, t, df[c].to_numpy())
     return out

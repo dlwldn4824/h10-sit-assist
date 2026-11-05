@@ -22,6 +22,11 @@ def arr(name: str, vals) -> str:
     return f"static const sa_real {name}[] = {{{body}}};"
 
 
+def highpass(cutoff: float, fs: float) -> list[float]:
+    b, a = butter(1, cutoff / (fs / 2), btype="high")
+    return [b[0], b[1], a[1]]
+
+
 def biquad(cutoff: float, fs: float) -> list[float]:
     b, a = butter(2, cutoff / (fs / 2))
     return [b[0], b[1], b[2], a[1], a[2]]
@@ -42,6 +47,8 @@ def main():
         f"#define SA_ONSET_VEL {c.onset_vel}", f"#define SA_ONSET_HOLD {round(c.onset_hold_s * c.fs)}",
         f"#define SA_SEAT_VEL {c.seat_vel}", f"#define SA_SEAT_HOLD {round(c.seat_hold_s * c.fs)}",
         f"#define SA_MIN_SEAT_DEPTH {c.min_seat_depth}", f"#define SA_STAND_DEPTH {c.stand_depth}",
+        f"#define SA_IMPACT_THR {c.impact_thr}",
+        *[f"#define SA_ACC_HP_{k} {v:.15g}" for k, v in zip(("B0", "B1", "A1"), highpass(c.accel_hp_hz, c.fs))],
         f"#define SA_Z_WEAK {c.z_weak}", f"#define SA_Z_STRONG {c.z_strong}", f"#define SA_GAIN {c.gain}",
         f"#define SA_BRAKE_FROM_RATIO {c.brake_from_ratio}", f"#define SA_DEEP_GAIN {c.deep_gain}",
         f"#define SA_DEEP_TARGET_RATIO {c.deep_target_ratio}", f"#define SA_LOOKAHEAD {c.lookahead_s}",

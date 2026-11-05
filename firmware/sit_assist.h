@@ -12,7 +12,8 @@
  *     ...
  *     // 매 제어 주기
  *     float tau[2];                          // [0]=왼쪽, [1]=오른쪽 신전 토크 (Nm, 0 이상)
- *     sa_step_1khz(&sa, thighDeg_LH, thighDeg_RH, incPosDeg_LH, incPosDeg_RH, tau);
+ *     sa_step_1khz(&sa, thighDeg_LH, thighDeg_RH, incPosDeg_LH, incPosDeg_RH,
+ *                  accX_Calib_LH, accY_Calib_LH, accX_Calib_RH, accY_Calib_RH, tau);
  *     u_LH = SA_EXT_SIGN_L * SA_TORQUE_TO_U * tau[0];   // ← 부호와 단위 변환은 H10 SDK에 맞춰 확인
  *     u_RH = SA_EXT_SIGN_R * SA_TORQUE_TO_U * tau[1];
  *     free_var1 = sa_log_state(&sa);         // 비교용 로그: 단계*10 + 제동 단계
@@ -58,8 +59,15 @@ typedef struct {
 } SA_Kin;
 
 typedef struct {
+    sa_real x1, y1;
+    int init;
+} SA_Highpass;
+
+typedef struct {
     SA_Kin kin[2];
     SA_Biquad f_trunk;
+    SA_Highpass f_acc;            /* 허벅지 IMU 가속도 크기 고역통과 → 착석 충격 */
+    sa_real impact;
     int phase, n_onset, n_seat, n_rise, stand_init, level, upright;
     sa_real stand[2], stand_trunk;
     sa_real tau[2];               /* 변화 속도 제한을 거친 토크 */
@@ -67,20 +75,21 @@ typedef struct {
     sa_real support, brake_max;
     /* 1 kHz → 100 Hz: 10샘플 평균 */
     int sub;
-    sa_real acc_th[2], acc_inc[2];
+    sa_real acc_th[2], acc_inc[2], acc_imu;
 } SA_State;
 
 void sa_init(SA_State *s);
 
-/* 100 Hz 한 샘플. thigh: 허벅지 굴곡 각도(deg), trunk: 상체 각도(deg, 없으면 NAN), seat: 의자 센서 0/1(없으면 NAN).
+/* 100 Hz 한 샘플. thigh: 허벅지 굴곡 각도(deg), trunk: 상체 각도(deg, 없으면 NAN), seat: 의자 센서 0/1(없으면 NAN),
+ * acc: 허벅지 IMU 가속도 크기 좌우 평균(m/s², 없으면 NAN). 엉덩이가 의자에 닿는 충격으로 착석을 판정한다.
  * out[2]에 왼쪽·오른쪽 신전 토크(Nm)를 쓴다. shadow=1이면 0을 쓴다. */
-void sa_update_100hz(SA_State *s, sa_real thigh_l, sa_real thigh_r, sa_real trunk, sa_real seat,
+void sa_update_100hz(SA_State *s, sa_real thigh_l, sa_real thigh_r, sa_real trunk, sa_real seat, sa_real acc,
                      int shadow, sa_real out[2]);
 
 /* H10 1 kHz 루프용: 10샘플마다 평균을 내서 sa_update_100hz를 부르고, 그 사이에는 직전 토크를 유지한다.
  * trunk = 좌우 평균(incPosDeg - thighDeg). */
 void sa_step_1khz(SA_State *s, float thighDeg_LH, float thighDeg_RH, float incPosDeg_LH, float incPosDeg_RH,
-                  float tau_out[2]);
+                  float accX_LH, float accY_LH, float accX_RH, float accY_RH, float tau_out[2]);
 
 float sa_log_state(const SA_State *s);
 float sa_log_torque(const SA_State *s);
