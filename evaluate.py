@@ -47,8 +47,12 @@ def offline_kinematics(df: pd.DataFrame, fs: float = 100.0) -> dict:
     if "trunk_deg" in df:
         trunk = sosfiltfilt(sos4, df["trunk_deg"].to_numpy(dtype=float))
         lean = trunk - trunk[: int(0.5 * fs)].mean()       # 처음 0.5초(서 있음) 대비
+    impact = None
+    if "acc_ms2" in df:                                  # 가속도 크기의 빠른 변화 = 착석 충격 (양방향 고역통과)
+        a_ = df["acc_ms2"].to_numpy(dtype=float)
+        impact = a_ - sosfiltfilt(butter(2, 1.0 / (fs / 2), output="sos"), a_)
     return {"t": df["time_s"].to_numpy(dtype=float), "w": w, "wm": w.mean(axis=1),
-            "acc": acc, "jerk": jerk, "lean": lean}
+            "acc": acc, "jerk": jerk, "lean": lean, "impact": impact}
 
 
 def descent_window(k: dict, seat: np.ndarray | None, cfg: Config = Config()) -> tuple[int, int]:
@@ -62,6 +66,11 @@ def descent_window(k: dict, seat: np.ndarray | None, cfg: Config = Config()) -> 
     else:
         slow = np.nonzero(wm[peak:] < cfg.seat_vel)[0]
         end = peak + int(slow[0]) if len(slow) else len(wm) - 1
+        if k.get("impact") is not None:            # IMU 충격이 있으면 그 순간이 엉덩이가 닿은 때
+            hi = min(end + 30, len(wm))
+            j = peak + int(np.argmax(k["impact"][peak:hi]))
+            if k["impact"][j] > cfg.impact_thr:
+                end = j
     return start, end
 
 
