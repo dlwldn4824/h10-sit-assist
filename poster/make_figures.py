@@ -587,7 +587,7 @@ def main():
     fast = speed_up_late(real["calib"][k], args.late_k)
     loo = Profile.from_trials(real["calib"][:k] + real["calib"][k + 1:])     # 자기 자신이 기준에 섞이지 않게
     label = f"후반 {args.late_k:g}배 빠른 가상 착석 (rep{k + 1:02d})"
-    fig_profile(real, loo, out, extra=fast, extra_label=label)
+    fig_profile(real, prof, out)                    # 개인 기준은 실측 착석만으로 그린다
     fig_design(real, out, args.late_k)
     fig_trial(fast, loo, out, name="fig_trial_real.png", window=(0.4, float(fast["time_s"].iloc[-1])))
     print(f"강조 시행: rep{k + 1:02d}, 후반 {args.late_k:g}배")
