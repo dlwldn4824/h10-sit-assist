@@ -85,12 +85,6 @@ def test_less_trunk_lean_flags_upright(profile, calib):
     assert (run_trial(upright, profile, SIM_CFG).posture == 1).any()
 
 
-def test_adaptive_restores_trunk_lean(person, profile):
-    off = trial_metrics(sit(person, profile, "low", 1.0, shadow=True))
-    on = trial_metrics(sit(person, profile, "low", 1.0, shadow=False))
-    assert on["peak_lean"] > off["peak_lean"]
-
-
 def test_without_waist_imu_still_brakes(person, profile, calib):
     df = sit(person, profile, "low", 1.0, shadow=True).drop(columns=["trunk_deg"])
     log = run_trial(df, profile, SIM_CFG, shadow=True)
@@ -100,7 +94,7 @@ def test_without_waist_imu_still_brakes(person, profile, calib):
 def test_adaptive_reduces_fast_descent(person, profile):
     off = trial_metrics(sit(person, profile, "low", 1.0, shadow=True))
     on = trial_metrics(sit(person, profile, "low", 1.0, shadow=False))
-    assert on["contact_vel"] < off["contact_vel"] * 0.9
+    assert on["contact_vel"] < off["contact_vel"] * 0.95   # 상체 지지 없이 제동만으로 (실측에서도 후반 감속이 부족했음)
     assert on["rms_jerk"] < off["rms_jerk"]
     assert on["descent_time"] < off["descent_time"] * 1.2      # 지나치게 느려지지 않음
 

@@ -433,9 +433,12 @@ def fig_trial(df: pd.DataFrame, prof: Profile, out: Path, cfg: Config = Config()
     up = (log["posture"] == 1).to_numpy()
     ax[1].scatter(t[up], log["lean"][up], s=10, c=RED, zorder=3, label="UPRIGHT 판단")
     ax[1].set_ylabel("deg")
-    ax[2].stackplot(t, np.minimum(log["tau_support"], log["tau_cmd_l"]),
-                    np.maximum(log["tau_cmd_l"] - log["tau_support"], 0),
-                    colors=[PURPLE, WINE], alpha=0.75, labels=["상체 지지 토크", "하강 제동 토크"])
+    if log["tau_support"].max() > 0:
+        ax[2].stackplot(t, np.minimum(log["tau_support"], log["tau_cmd_l"]),
+                        np.maximum(log["tau_cmd_l"] - log["tau_support"], 0),
+                        colors=[PURPLE, WINE], alpha=0.75, labels=["상체 지지 토크", "하강 제동 토크"])
+    else:
+        ax[2].fill_between(t, log["tau_cmd_l"], color=WINE, alpha=0.75, label="하강 제동 토크")
     ax[2].plot(t, log["tau_cmd_l"], c="k", lw=1.2, label="최종 신전 토크 (왼쪽)")
     ax[2].set_ylabel("Nm")
     ax[2].set_xlabel("시간 (s)")

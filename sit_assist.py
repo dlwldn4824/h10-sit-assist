@@ -74,7 +74,7 @@ class Config:
     alpha_sd: float = 3.0           # 각가속도가 평소 최대 + 3SD를 넘으면 급가속
     lookahead_s: float = 0.05       # 0.05초 뒤 속도와 기준을 예측해서 미리 반응
     # 자세 (허리 IMU가 있을 때만)
-    support_gain: float = 6.0       # Nm, 상체 지지 토크 = support_gain × sin(상체 숙임)
+    support_gain: float = 0.0       # Nm, 상체 지지 토크 = support_gain × sin(상체 숙임). 실측 후 사용하지 않기로 함 (0)
     upright_margin_sd: float = 2.0  # 평소 숙임 − 2SD보다 덜 숙이면 UPRIGHT
     upright_min_margin: float = 6.0 # deg
     upright_gain: float = 1.5       # UPRIGHT일 때 제동 gain에 곱하는 값
