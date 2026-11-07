@@ -60,7 +60,7 @@ def decode_file(path: Path) -> pd.DataFrame:
     with open(path, "rb") as f:
         head = f.read(64)
     if head.lstrip(b"\xef\xbb\xbf").lstrip().startswith(b"loopCnt"):   # 이미 디코딩된 CSV (H10 앱 내보내기)
-        return pd.read_csv(path, encoding="utf-8-sig")
+        return _order_by_loop(pd.read_csv(path, encoding="utf-8-sig"))
     rows = []
     for raw in Path(path).read_bytes().split(b"\n"):
         line = raw.replace(b"\x00", b"").decode("utf-8", errors="ignore").strip()
@@ -68,8 +68,28 @@ def decode_file(path: Path) -> pd.DataFrame:
         if row is not None:
             rows.append(row)
     df = pd.DataFrame(rows, columns=[name for name, _, _ in FIELDS])
-    df = df.drop_duplicates("loopCnt").sort_values("loopCnt").reset_index(drop=True)
-    return df
+    return _order_by_loop(df)
+
+
+def _order_by_loop(df: pd.DataFrame, reset_gap: int = 1000) -> pd.DataFrame:
+    """loopCnt(1 kHz 카운터) 순서로 정리한다.
+
+    - 카운터가 크게 되돌아가면(reset_gap 이상) 기록을 새로 시작한 것이라 그 순서를 그대로 둔다
+      (한 파일에 여러 세트가 이어 붙은 경우, 11/7 1번 로그).
+    - 한 기록 안에서 블록 순서가 살짝 뒤섞이거나(11/7 30 cm 로그: 15곳) 샘플이 빠지면(211개)
+      loopCnt로 정렬하고 빠진 샘플은 선형 보간한다. 행 번호로 시간을 만드는 to_100hz가 실제 시간과 맞게 된다.
+    """
+    loop = df["loopCnt"].to_numpy()
+    starts = [0] + [i + 1 for i in np.nonzero(np.diff(loop) < -reset_gap)[0]] + [len(df)]
+    parts = []
+    for a, b in zip(starts[:-1], starts[1:]):
+        seg = df.iloc[a:b].drop_duplicates("loopCnt").sort_values("loopCnt")
+        lo, hi = int(seg["loopCnt"].iloc[0]), int(seg["loopCnt"].iloc[-1])
+        if hi - lo + 1 != len(seg):
+            seg = seg.set_index("loopCnt").reindex(pd.RangeIndex(lo, hi + 1)).interpolate(limit_area="inside")
+            seg = seg.rename_axis("loopCnt").reset_index()
+        parts.append(seg)
+    return pd.concat(parts, ignore_index=True)
 
 
 def main():
