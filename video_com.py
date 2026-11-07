@@ -651,8 +651,8 @@ def cmd_analyze(a):
         if a.offset is not None:
             off, n = a.offset, -1
         else:
-            off, n = find_offset([e["contact_t"] for e in vev], [e["contact_t"] for e in hev])
-    sits = sit_table(cf, vev, hev, off or 0.0)
+            off, n = find_offset([e["contact_t"] for e in vev], [e["contact_t"] for e in hev], a.tol)
+    sits = sit_table(cf, vev, hev, off or 0.0, a.tol)
     sits.insert(0, "chair", a.chair)
     sits.insert(1, "source", pose.stem)
     out = Path(a.out)
@@ -793,7 +793,9 @@ def main():
     p.add_argument("h10", nargs="?", help="같은 시간에 기록한 H10 로그 (앱 CSV 또는 SUIT 로그). 없으면 영상 지표만")
     p.add_argument("--chair", required=True, help='예: "45 cm"')
     p.add_argument("--leg-cm", type=float, help="다리 길이(대전자~바깥 복사뼈, cm). 주면 cm 단위도 계산")
-    p.add_argument("--offset", type=float, help="H10 시간 = 영상 시간 + offset (자동 맞춤 대신)")
+    p.add_argument("--offset", type=float, help="H10 시간 = 영상 시간 + offset (자동 맞춤 대신, match의 xcorr_offset_s 추천)")
+    p.add_argument("--tol", type=float, default=SYNC_TOL_S,
+                   help="같은 착석으로 짝지을 시간차(s). 털썩처럼 착석 판정이 영상/H10에서 갈리면 0.5 정도로")
     p.add_argument("--model")
     p.add_argument("--out", default="results/video")
     p.set_defaults(fn=cmd_analyze)
