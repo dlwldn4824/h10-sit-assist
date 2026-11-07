@@ -86,6 +86,9 @@ class Config:
     upright_margin_sd: float = 2.0  # 평소 숙임 − 2SD보다 덜 숙이면 UPRIGHT
     upright_min_margin: float = 6.0 # deg
     upright_gain: float = 1.5       # UPRIGHT일 때 제동 gain에 곱하는 값
+    # 2차 개선: UPRIGHT 판정이 나오면 속도 점수가 낮아도 이 토크로 바로 제동한다.
+    # 11/7 실측(평소 착석 9회 기준): 털썩 11회 모두 착석 약 1초 전(중앙값 1.0초) UPRIGHT 판정, 그러나 속도 제동은 닿기 전 0/11.
+    upright_brake: float = 1.5      # Nm, 0이면 끔 (1차 알고리즘과 같아짐)
     # CoM 제동 (허리 IMU가 있을 때만): H10 허벅지 · 상체 각도로 추정한 외삽 CoM이 평소보다 발 뒤로 빠지면 제동.
     # 카메라 검증(11/7, 앉기 17회): H10만으로 추정한 CoM–발목 거리가 카메라 CoM과 r = 0.94.
     # 0이면 끔 (펌웨어 sit_assist.c에는 아직 없다).
@@ -509,6 +512,8 @@ class SitAssistController:
                 if a[i] > p.alpha_max and w[i] > ref[i]:     # 털썩 내려앉는 급가속
                     z[i] = max(z[i], c.z_strong)
                 brake[i] = max(g * (z[i] - c.z_weak), 0.0)
+                if posture == Posture.UPRIGHT and c.upright_brake > 0:   # 2차: 자세 판정 즉시 제동
+                    brake[i] = max(brake[i], c.upright_brake)
                 if c.com_gain > 0:   # 3) CoM 제동: 속도도 CoM도 각각은 애매하게 평소보다 나쁠 때 둘을 합쳐 판단
                     z_sum = max(z[i], 0.0) + max(z_com, 0.0)
                     brake[i] = max(brake[i], c.com_gain * (z_sum - c.com_sum_thr))

@@ -61,3 +61,20 @@ def test_c_matches_python(tmp_path, double, tol):
         py = run_trial(df, prof, Config(), shadow=True)[["tau_cmd_l", "tau_cmd_r"]].to_numpy()
         worst = max(worst, float(np.abs(run_c(lib, df, double) - py).max()))
     assert worst < tol, f"최대 차이 {worst:.6f} Nm"
+
+
+LOGS = sorted((ROOT / "data" / "video").glob("h10_*.csv"))   # 끊기지 않은 실측 로그 (서 있음 · 멈칫 · 일어섬 포함)
+
+
+@pytest.mark.skipif(not LOGS, reason="끊기지 않은 실측 로그(data/video/h10_*.csv) 없음")
+def test_c_matches_python_on_continuous_logs(tmp_path):
+    """잘라낸 앉기만으로는 '멈칫 뒤 다시 내려감' 같은 상태 전환이 잘 안 나온다. 전체 로그로도 같은지 본다."""
+    from preprocess_h10 import to_100hz
+    lib = build(tmp_path, True)
+    prof = Profile.load(PROFILE)
+    worst = 0.0
+    for f in LOGS:
+        df = to_100hz(pd.read_csv(f))
+        py = run_trial(df, prof, Config(), shadow=True)[["tau_cmd_l", "tau_cmd_r"]].to_numpy()
+        worst = max(worst, float(np.abs(run_c(lib, df, True) - py).max()))
+    assert worst < 1e-6, f"최대 차이 {worst:.6f} Nm"

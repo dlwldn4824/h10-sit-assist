@@ -109,15 +109,35 @@ static void segment(SA_State *s, const sa_real th[2], const sa_real w[2], sa_rea
         } else if (!isnan(impact) && impact > SA_IMPACT_THR && dm > SA_MIN_SEAT_DEPTH) {
             s->phase = SA_SEATED;                /* IMU 충격 = 엉덩이가 의자에 닿음 */
         } else if (fabs(wm) < SA_SEAT_VEL && dm > SA_MIN_SEAT_DEPTH) {
-            if (++s->n_seat >= SA_SEAT_HOLD) s->phase = SA_SEATED;
+            if (++s->n_seat >= SA_SEAT_HOLD) {
+                s->phase = SA_SEATED;
+                s->seat_by_vel = 1;              /* 압력센서 · 충격 없이 멈춤만 보고 착석으로 봄 */
+                s->n_resume = 0;
+            }
         } else {
             s->n_seat = 0;
         }
         s->n_rise = wm < -SA_ONSET_VEL ? s->n_rise + 1 : 0;
         if (s->n_rise >= SA_ONSET_HOLD)
             s->phase = dm > SA_MIN_SEAT_DEPTH ? SA_SEATED : SA_STANDING;
-    } else if (s->phase == SA_SEATED && dm < SA_STAND_DEPTH) {
-        s->phase = SA_STANDING;
+    } else if (s->phase == SA_SEATED) {
+        if (dm < SA_STAND_DEPTH) {
+            s->phase = SA_STANDING;
+            s->seat_by_vel = 0;
+        } else if (s->seat_by_vel && SA_RESUME_VEL > 0) {
+            int hit = (!isnan(seat) && seat > 0.5) || (!isnan(impact) && impact > SA_IMPACT_THR);
+            if (hit) {
+                s->seat_by_vel = 0;              /* 진짜로 닿았다 → 더는 되돌리지 않음 */
+            } else if (w[0] > SA_RESUME_VEL && w[1] > SA_RESUME_VEL) {
+                if (++s->n_resume >= SA_ONSET_HOLD) {   /* 멈칫 뒤 다시 내려감 → 하강으로 되돌림 */
+                    s->phase = SA_DESCENT;
+                    s->seat_by_vel = 0;
+                    s->n_seat = s->n_rise = 0;
+                }
+            } else {
+                s->n_resume = 0;
+            }
+        }
     }
 }
 
@@ -166,6 +186,7 @@ void sa_update_100hz(SA_State *s, sa_real thigh_l, sa_real thigh_r, sa_real trun
             sa_real z = (w[i] + a[i] * SA_LOOKAHEAD - ref) / sd;
             if (a[i] > SA_ALPHA_MAX && w[i] > ref) z = sa_max(z, SA_Z_STRONG);   /* 털썩 내려앉는 급가속 */
             brake[i] = sa_max(g * (z - SA_Z_WEAK), 0);
+            if (s->upright && SA_UPRIGHT_BRAKE > 0) brake[i] = sa_max(brake[i], SA_UPRIGHT_BRAKE);  /* 2차: 자세 판정 즉시 제동 */
             zmax = i == 0 ? z : sa_max(zmax, z);
         }
     }
@@ -201,6 +222,6 @@ void sa_step_1khz(SA_State *s, float thighDeg_LH, float thighDeg_RH, float incPo
     tau_out[1] = (float)s->out[1];
 }
 
-float sa_log_state(const SA_State *s) { return (float)(s->phase * 10 + s->level); }
+float sa_log_state(const SA_State *s) { return (float)(s->phase * 10 + s->level + 5 * s->upright); }
 float sa_log_torque(const SA_State *s) { return (float)sa_max(s->tau[0], s->tau[1]); }
 int sa_state_size(void) { return (int)sizeof(SA_State); }

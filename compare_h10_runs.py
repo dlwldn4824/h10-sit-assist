@@ -5,7 +5,7 @@
 
 - 원본 hex 로그(SUIT_LOGGED_DATA-*.csv)와 디코딩된 CSV(loopCnt 열이 있는 파일) 모두 받는다.
 - 앉기를 자동으로 찾아 지표를 계산한다. ON 조건은 토크가 켜져 있으므로 보조 여부로 걸러내지 않는다.
-- free_var1(단계*10 + 제동 단계)와 free_var2(계산 토크)가 기록돼 있으면 DEEP 판정과 최대 토크도 함께 본다.
+- free_var1(단계*10 + 제동 단계 + 5·상체 덜 숙임)와 free_var2(계산 토크)가 기록돼 있으면 DEEP 판정과 최대 토크도 함께 본다.
 """
 from __future__ import annotations
 
@@ -68,6 +68,7 @@ def main():
                 row = {"cond": cond, "source": seg.attrs["source"], "rep": k, **{c: m[c] for c in METRICS}}
                 if "free_var1" in seg:
                     row["deep"] = bool(((seg["free_var1"] // 10) == 2).any())
+                    row["upright"] = bool((np.round(seg["free_var1"]) % 10 >= 5).any())   # 2차: 상체 덜 숙임 판정
                     row["peak_tau_log"] = float(seg["free_var2"].max())
                 rows.append(row)
     m = pd.DataFrame(rows)

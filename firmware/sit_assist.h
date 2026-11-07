@@ -16,7 +16,7 @@
  *                  accX_Calib_LH, accY_Calib_LH, accX_Calib_RH, accY_Calib_RH, tau);
  *     u_LH = SA_EXT_SIGN_L * SA_TORQUE_TO_U * tau[0];   // ← 부호와 단위 변환은 H10 SDK에 맞춰 확인
  *     u_RH = SA_EXT_SIGN_R * SA_TORQUE_TO_U * tau[1];
- *     free_var1 = sa_log_state(&sa);         // 비교용 로그: 단계*10 + 제동 단계
+ *     free_var1 = sa_log_state(&sa);         // 비교용 로그: 단계*10 + 제동 단계 + 5(상체 덜 숙임)
  *     free_var2 = sa_log_torque(&sa);        // 비교용 로그: 계산한 토크(Nm, 큰 쪽)
  */
 #ifndef SIT_ASSIST_H
@@ -69,6 +69,7 @@ typedef struct {
     SA_Highpass f_acc;            /* 허벅지 IMU 가속도 크기 고역통과 → 착석 충격 */
     sa_real impact;
     int phase, n_onset, n_seat, n_rise, stand_init, level, upright;
+    int seat_by_vel, n_resume;    /* 속도로만 '착석'이라 본 경우: 다시 굽혀지면 하강으로 되돌림 */
     sa_real stand[2], stand_trunk;
     sa_real tau[2];               /* 변화 속도 제한을 거친 토크 */
     sa_real out[2];               /* 실제로 내보내는 토크 (그림자 모드·안전 상한 반영) */

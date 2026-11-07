@@ -169,16 +169,17 @@ H10 앱에서 내보낸 CSV(첫 줄이 `loopCnt,...`)와 hex 원시 로그(`SUIT
 2. **앉기 전 선행 작동:** 앉기 시작 전부터 보조가 켜져 동작이 머뭇거렸습니다.
 3. **서 있을 때 오작동:** 가만히 서 있거나 고개만 돌려도 보조가 작동했습니다.
 
-서 있음 판정과 기준 자세 재설정을 고치고 후반 제동을 강화해 다시 측정합니다.
+2차 보조 알고리즘에서 '멈칫 뒤 다시 내려감'을 펌웨어에 넣고, 상체 덜 숙임 판정 즉시 1.5 Nm로 제동하도록 바꿨습니다. 실측 로그 재생에서 털썩 주저앉기의 닿기 전 제동이 0/11 → 11/11(착석 1.0초 전, 중앙값)이 되었습니다. 실험 순서는 [`firmware/2차_실측_체크리스트.md`](firmware/2차_실측_체크리스트.md)에 있습니다.
 
 ## 4. H10에 넣기 (`firmware/`)
 
 | 파일 | 내용 |
 |---|---|
 | `sit_assist.h`, `sit_assist.c` | 알고리즘 본체. 동적 메모리 없음, 상태는 구조체 하나 |
-| `sit_assist_params.h` | 실측 기준값(하강 속도 표, DEEP 기준 89.1° 등). `export_params.py`가 만듦 |
+| `sit_assist_params.h` | 실측 기준값(하강 속도 표, DEEP 기준 69.4° 등). `export_params.py`가 만듦 |
 | `export_params.py` | `results/real/profile_45ref.json` → 헤더 |
-| `test_firmware.py` | 실측 착석 60회에서 C와 Python 토크가 같은지 확인 (double 1e-6 Nm, float 0.05 Nm 이내) |
+| `test_firmware.py` | 실측 착석 60회와 끊기지 않은 로그에서 C와 Python 토크가 같은지 확인 (double 1e-6 Nm, float 0.05 Nm 이내) |
+| `2차_실측_체크리스트.md` | 2차 실측 당일 순서: 그림자 모드 디버그 → 기준값 → 방향 · 상한 → 본 실험 → 분석 |
 
 ```c
 #include "sit_assist.h"
@@ -189,10 +190,11 @@ void controller_init(void) { sa_init(&sa); }
 void controller_1khz(void)              /* H10 제어 루프 */
 {
     float tau[2];                        /* 왼쪽·오른쪽 신전 토크 (Nm) */
-    sa_step_1khz(&sa, thighDeg_LH, thighDeg_RH, incPosDeg_LH, incPosDeg_RH, tau);
+    sa_step_1khz(&sa, thighDeg_LH, thighDeg_RH, incPosDeg_LH, incPosDeg_RH,
+                 accX_Calib_LH, accY_Calib_LH, accX_Calib_RH, accY_Calib_RH, tau);
     u_LH = SA_EXT_SIGN_L * SA_TORQUE_TO_U * tau[0];
     u_RH = SA_EXT_SIGN_R * SA_TORQUE_TO_U * tau[1];
-    free_var1 = sa_log_state(&sa);      /* 단계*10 + 제동 단계 (0 서 있음, 1 내려감, 2 DEEP, 3 착석) */
+    free_var1 = sa_log_state(&sa);      /* 단계*10 + 제동 단계 + 5(상체 덜 숙임). 단계: 0 서 있음, 1 내려감, 2 DEEP, 3 착석 */
     free_var2 = sa_log_torque(&sa);     /* 계산한 토크 (Nm) */
 }
 ```
