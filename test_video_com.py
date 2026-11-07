@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from video_com import (HEAD, LANDMARKS, SEGMENTS, SIDES, TRUNK, com_frame, correlations, find_offset,
+from video_com import (HEAD, LANDMARKS, SEGMENTS, SIDES, TRUNK, com_frame, correlations, find_offset, match_score, thigh_xcorr,
                        h10_sit_events, sit_table, video_sit_events)
 
 FPS = 30.0
@@ -24,14 +24,15 @@ def stick(thigh_deg, shank_deg=0.0, lean_deg=0.0, facing=1, ankle_x=500.0):
     return {k: (ankle_x + s * v[0], 1000.0 - v[1]) for k, v in p.items()}
 
 
-def frames(poses, t0=0.0):
+def frames(poses, t0=0.0, hidden=()):
+    """hidden에 든 점은 양쪽 다 안 보이게(화면 밖으로 잘린 것처럼) 만든다."""
     rows = []
     for i, p in enumerate(poses):
         r = {"time_s": t0 + i / FPS}
         for name in LANDMARKS:
             for side in SIDES:
                 r[f"{name}_{side}_x"], r[f"{name}_{side}_y"] = p[name]
-                r[f"{name}_{side}_v"] = 0.99 if side == "r" else 0.3
+                r[f"{name}_{side}_v"] = 0.05 if name in hidden else (0.99 if side == "r" else 0.3)
         rows.append(r)
     return pd.DataFrame(rows)
 
@@ -155,3 +156,68 @@ def test_sit_table_and_correlations_end_to_end():
     corr = correlations(sits)
     row = corr[(corr.chair == "30 cm") & (corr.video == "dx_min") & (corr.h10 == "h10_peak_lean")].iloc[0]
     assert row["spearman_r"] > 0.8              # 더 숙일수록 CoM이 덜 뒤로 간다
+
+
+def test_head_cut_off_estimates_head_from_trunk():
+    poses = [stick(90, 15, 30)] * 40
+    full = com_frame(frames(poses))
+    est = com_frame(frames(poses, hidden=("ear",)))
+    assert full.attrs["mode"] == "full"
+    assert est.attrs["mode"] == "estimated" and "ear" in est.attrs["filled"]
+    # 머리 위치를 근사해도 CoM–발목 거리는 다리 길이의 1% 안
+    assert est["com_ankle_dx"].iloc[20] == pytest.approx(full["com_ankle_dx"].iloc[20], abs=0.01)
+
+
+def test_camera_trunk_lean_and_thigh_angle():
+    for facing in (1, -1):
+        cf = com_frame(frames([stick(60, 10, 25, facing=facing)] * 40))
+        assert cf["trunk_lean_deg"].iloc[20] == pytest.approx(25, abs=0.5)
+        assert cf["thigh_deg"].iloc[20] == pytest.approx(60, abs=0.5)
+
+
+def test_upper_body_cut_off_gives_hip_metrics_only():
+    poses, _ = sit_cycle()
+    cf = com_frame(frames(poses * 2, hidden=("ear", "shoulder", "elbow", "wrist", "index")))
+    assert cf.attrs["mode"] == "partial"
+    assert "com_ankle_dx" not in cf and "trunk_lean_deg" not in cf
+    assert "hip_ankle_dx" in cf and "thigh_deg" in cf
+    vev = video_sit_events(cf)
+    assert len(vev) == 2
+    sits = sit_table(cf, vev)                       # H10 로그 없이 영상 지표만
+    assert len(sits) == 2 and "hip_dx_min" in sits and "h10_contact_t" not in sits
+    assert 75 < sits["thigh_dtheta"].iloc[0] <= 92       # 착석 판정은 완전히 멈추기 직전 프레임
+
+
+def test_feet_cut_off_uses_thigh_length_and_knee_direction():
+    poses, _ = sit_cycle(lean_peak=20)
+    cf = com_frame(frames(poses * 2, hidden=("ankle", "heel", "toe")))
+    assert cf.attrs["mode"] == "partial" and cf.attrs["leg_from"] == "2 x thigh"
+    assert cf.attrs["facing"] == 1
+    assert "hip_ankle_dx" not in cf
+    sits = sit_table(cf, video_sit_events(cf))
+    assert len(sits) == 2
+    assert sits["lean_max"].iloc[0] == pytest.approx(20, abs=2)
+
+
+def test_thigh_curve_xcorr_finds_same_session_only():
+    rng = np.random.default_rng(1)
+    poses, contacts = [], []
+    for stand in rng.uniform(0.5, 2.5, 6):              # 서 있는 시간을 들쭉날쭉하게
+        p, c = sit_cycle(stand_s=round(stand * FPS) / FPS)
+        contacts.append(len(poses) / FPS + c)
+        poses += p
+    cf = com_frame(frames(poses))
+    offset = 7.5
+    fs = 100
+    n = int((cf["time_s"].iloc[-1] + offset + 5) * fs)
+    t = np.arange(n) / fs
+    th = np.interp(t - offset, cf["time_s"], cf["thigh_deg"], left=cf["thigh_deg"].iloc[0],
+                   right=cf["thigh_deg"].iloc[-1]) + rng.normal(0, 2, n)
+    same = pd.DataFrame({"time_s": t, "thigh_l_deg": th, "thigh_r_deg": th, "trunk_deg": 0.0})
+    off, r = thigh_xcorr(cf, same)
+    assert off == pytest.approx(offset, abs=0.1) and r > 0.95
+    other = same.copy()                                  # 같은 동작을 다른 박자로 한 세션
+    other["thigh_l_deg"] = other["thigh_r_deg"] = np.interp(t * 1.3 % (t[-1]), t, th)
+    assert thigh_xcorr(cf, other)[1] < r - 0.2
+    m = match_score([e for e in contacts], [c + offset for c in contacts], h10_dur=t[-1])
+    assert m["matched"] == 6 and m["offset_s"] == pytest.approx(offset, abs=0.05)

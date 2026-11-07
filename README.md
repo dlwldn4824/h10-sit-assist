@@ -223,18 +223,51 @@ H10의 상체 숙임 · 착석 속도가 실제 CoM을 따라가는지, 옆에�
 - 다리 길이(대전자 ~ 바깥 복사뼈, cm)를 재 두면 결과를 cm로도 볼 수 있습니다.
 - 영상은 사람 데이터라 `data/video/`에 두고 저장소에 올리지 않습니다.
 
+- 폰을 눕혀 찍어도 됩니다(`extract`가 회전을 자동으로 맞춤). 손으로 들고 찍으면 발목 기준으로 높이를 재서 흔들림을 줄이지만, 고정하는 게 가장 좋습니다.
+
+**몸이 잘린 영상**
+
+머리 · 어깨 · 발이 화면 밖이면 MediaPipe가 추측 좌표를 내는데, 화면 밖 좌표는 안 보인 것으로 칩니다. 그 뒤 보이는 부분으로 계산할 수 있는 것만 냅니다.
+
+| 보이는 부분 | 모드 | 나오는 값 |
+|---|---|---|
+| 전부 | `full` | CoM–발목 거리, CoM 하강 속도, 아래 값 전부 |
+| 머리 · 손 · 발만 잘림 | `estimated` | 위와 같음. 머리는 어깨 위 몸통 길이 25%로, 발은 발목으로 근사 |
+| 어깨 · 팔이 잘림 | `partial` | 엉덩이–발목 거리, 허벅지 각도, 엉덩이 하강 속도 (CoM 아님) |
+| 발이 잘림 | `partial` | 카메라 상체 숙임, 허벅지 각도 (길이 기준은 허벅지 × 2) |
+| 무릎 아래가 다 잘림 | `partial` | 카메라 상체 숙임, 엉덩이 하강 (길이 기준은 엉덩이–어깨 × 1.8) |
+
+몸통 · 팔 · 다리처럼 무거운 분절은 근사하지 않습니다. 하나라도 없으면 CoM은 계산하지 않습니다. 발 길이가 화면에서 너무 짧으면(옆이 아니라 앞/뒤에서 찍은 경우) 경고를 냅니다.
+
 **설치와 실행**
 
 ```bash
 pip install mediapipe opencv-python
-python video_com.py extract data/video/45cm_1.mp4 --out data/video/45cm_1_pose.csv
-python video_com.py analyze data/video/45cm_1_pose.csv ~/Downloads/11.4_45cm_10times_1.csv --chair "45 cm" --leg-cm 90
+python video_com.py extract data/video/45cm_1.mp4 --out data/video/pose/45cm_1_pose.csv
+python video_com.py overlay data/video/45cm_1.mp4 data/video/pose/45cm_1_pose.csv
+python video_com.py analyze data/video/pose/45cm_1_pose.csv ~/Downloads/11.4_45cm_10times_1.csv --chair "45 cm" --leg-cm 90
+python video_com.py match --pose data/video/pose/*_pose.csv --h10 ~/Downloads/11.4_*.csv
 python video_com.py summary results/video
 ```
 
-- `extract`: MediaPipe Pose로 프레임마다 관절 좌표를 뽑습니다. 설치된 mediapipe에 예전 Pose API가 없으면 `--model pose_landmarker_full.task`를 줍니다. 다른 포즈 도구의 좌표도 같은 열 이름(`hip_r_x` 등)의 CSV로 넣을 수 있습니다.
-- `analyze`: 카메라 쪽 다리를 골라 Winter(2009) 분절 질량비로 CoM을 계산하고, CoM–발목 앞뒤 거리(다리 길이로 나눈 값, 바라보는 방향이 +)를 구합니다. 영상의 착석 순간(엉덩이 하강이 멈춘 프레임)과 H10 착석 충격을 맞춰 시간 차이를 자동으로 찾습니다(±0.15초 안에서 가장 많이 겹치는 값). 안 맞으면 `--offset`으로 직접 줍니다.
-- `summary`: 앉기별로 CoM–발목 거리(착석 순간, 가장 뒤로 간 값)와 CoM 하강 속도를 H10의 최대 상체 숙임, 착석 속도, 후반 하강 속도와 비교해 의자별 Pearson · Spearman 상관과 그래프를 `results/video/`에 저장합니다.
+- `extract`: MediaPipe로 프레임마다 관절 좌표를 뽑습니다.
+  - 최신 mediapipe에는 예전 Pose API가 없어서 Tasks 모델 `data/models/pose_landmarker_heavy.task`를 씁니다. 받는 곳은 [MediaPipe Pose Landmarker](https://developers.google.com/mediapipe/solutions/vision/pose_landmarker)이고, 다른 경로에 있으면 `--model`로 지정합니다.
+  - `--rotate`의 기본값은 `auto`입니다.
+  - 다른 포즈 도구의 좌표도 같은 열 이름(`hip_r_x` 등)의 CSV로 넣을 수 있습니다.
+- `overlay`: 착석 시작 · 착석 프레임에 관절 선과 CoM(빨간 점), 발목 수직선을 그려 한 장으로 붙입니다. 숫자를 믿기 전에 눈으로 확인하는 용도입니다.
+- `analyze`:
+  - 카메라 쪽 다리를 골라 Winter(2009) 분절 질량비로 CoM을 계산합니다.
+  - CoM–발목 앞뒤 거리를 구합니다. 다리 길이로 나눈 값이고, 바라보는 방향이 +입니다.
+  - 착석은 허벅지 각도로 찾습니다. 25° 아래에서 55° 위로 넘어간 뒤 굽힘이 멈춘 순간이 착석이고, H10과 같은 기준이라 카메라 흔들림에 강합니다.
+  - H10 로그를 주면 착석 충격과 맞춰 시간 차이를 자동으로 찾습니다. 안 맞으면 `--offset`으로 직접 줍니다.
+  - H10 로그 없이 영상 지표만 볼 수도 있습니다.
+- `match`: 어느 영상이 어느 H10 로그인지 모를 때 씁니다.
+  - 영상 허벅지 각도 곡선과 H10 허벅지 각도 곡선을 통째로 겹쳐 보고, 가장 잘 맞는 시간차와 상관계수 r을 찾습니다. 다리가 잘린 영상이면 상체 각도 곡선을 씁니다.
+  - 같은 세션이면 r이 0.9 안팎으로 나오고 2등과 차이가 크게 나야 합니다. r이 0.6 아래면 같은 세션이 아니라고 봅니다.
+  - 착석 시각만 맞추는 방식도 같이 보여줍니다. 다만 착석 간격이 규칙적인 실험끼리는 우연히 겹치기 쉬워서 보조 지표로만 씁니다.
+- `summary`: 앉기별 카메라 지표와 H10 신호를 비교해 의자별 Pearson · Spearman 상관과 그래프를 `results/video/`에 저장합니다.
+  - 비교하는 H10 신호는 최대 상체 숙임, 착석 각도, 착석 속도, 후반 하강 속도입니다.
+  - 특히 카메라 상체 숙임과 H10 상체 숙임은 같은 것을 잰 값이라 센서 검증이 됩니다.
 
 ## 5. 알고리즘
 
