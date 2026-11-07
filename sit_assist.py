@@ -61,6 +61,10 @@ class Config:
     impact_thr: float = 3.0         # m/s²
     min_seat_depth: float = 20.0    # deg, 이보다 얕게 멈추면 앉은 것으로 보지 않음
     stand_depth: float = 10.0       # deg, 앉은 뒤 이만큼 펴지면 일어선 것
+    # 반쯤 내려가다 멈칫했다가 다시 떨어지는 착석(11/7 털썩 11회 중 4회): 멈춘 순간을 착석으로 잘못 판정하면
+    # 마지막에 떨어지는 구간에 제동을 못 건다. 의자 압력센서 · IMU 충격 없이 속도로만 '착석'이라 본 경우,
+    # 그 뒤 다시 빠르게 굽혀지면 하강으로 되돌린다.
+    resume_vel: float = 15.0        # deg/s, 0이면 끔
     # 개인 기준값
     bin_deg: float = 5.0
     min_sd: float = 25.0            # deg/s, 정상 착석 30회도 같은 각도에서 이만큼은 흔들림 (11/4 실측)
@@ -82,6 +86,15 @@ class Config:
     upright_margin_sd: float = 2.0  # 평소 숙임 − 2SD보다 덜 숙이면 UPRIGHT
     upright_min_margin: float = 6.0 # deg
     upright_gain: float = 1.5       # UPRIGHT일 때 제동 gain에 곱하는 값
+    # CoM 제동 (허리 IMU가 있을 때만): H10 허벅지 · 상체 각도로 추정한 외삽 CoM이 평소보다 발 뒤로 빠지면 제동.
+    # 카메라 검증(11/7, 앉기 17회): H10만으로 추정한 CoM–발목 거리가 카메라 CoM과 r = 0.94.
+    # 0이면 끔 (펌웨어 sit_assist.c에는 아직 없다).
+    com_gain: float = 0.0           # Nm / 점수
+    com_sum_thr: float = 5.0        # 속도 점수 + CoM 점수가 이걸 넘으면 제동. 11/7 털썩 55%, 평소 착석 0~7% (같은 데이터로 정해 과적합 주의)
+    com_shank_deg: float = 15.0     # 정강이 기울기 가정 (H10에 정강이 센서가 없음). 카메라로 잰 평소 착석 값 ≈ 17°
+    com_leg_m: float = 0.9          # 다리 길이 (외삽 CoM의 √(g/l)에만 쓰임)
+    com_cutoff_hz: float = 4.0      # CoM 속도 저역통과
+    min_com_sd: float = 0.03        # 다리 길이 배. 평소 착석도 같은 각도에서 이만큼은 흔들림
     # 출력
     tau_max: float = 10.0           # Nm. H10 사양 이하로, 실험은 낮은 값부터 올린다
     rise_rate: float = 60.0         # Nm/s, 토크가 늘어나는 최대 속도
@@ -143,6 +156,47 @@ class Kinematics:
         return th, w, a
 
 
+# Winter (2009) 분절 질량비. 팔은 몸통에 합쳤다 (옆에서 보면 팔이 몸통 근처에 있음)
+_COM_MASS = {"foot": 2 * 0.0145, "shank": 2 * 0.0465, "thigh": 2 * 0.100, "trunk_arms": 0.497 + 2 * 0.050,
+             "head": 0.081}
+# 다리 길이를 1로 둔 분절 길이 (Winter 신체 비율): 정강이 0.5, 허벅지 0.5, 엉덩이–어깨 0.55, 머리 CoM은 엉덩이에서 0.75
+_COM_LEN = {"shank": 0.5, "thigh": 0.5, "trunk": 0.55, "head": 0.75}
+
+
+def h10_com_dx(thigh_deg, trunk_deg, shank_deg: float = 15.0):
+    """H10이 재는 각도만으로 계산한 CoM–발목 앞뒤 거리 (다리 길이 배, 앞이 +). 옆에서 본 막대 인형 모델.
+
+    thigh_deg: 허벅지 굴곡 (선 자세 0°), trunk_deg: 상체 숙임 (수직 0°, 앞으로 +),
+    shank_deg: 정강이 기울기 (무릎이 발목보다 앞이면 +). H10에는 정강이 센서가 없어 가정값을 쓴다.
+    """
+    t, p = np.radians(thigh_deg), np.radians(trunk_deg)
+    knee = _COM_LEN["shank"] * np.sin(np.radians(shank_deg))
+    hip = knee - _COM_LEN["thigh"] * np.sin(t)
+    m = _COM_MASS
+    x = (m["foot"] * 0.1 + m["shank"] * 0.567 * knee + m["thigh"] * (hip + 0.433 * (knee - hip))
+         + m["trunk_arms"] * (hip + 0.5 * _COM_LEN["trunk"] * np.sin(p)) + m["head"] * (hip + _COM_LEN["head"] * np.sin(p)))
+    return x / sum(m.values())
+
+
+class ComEstimator:
+    """Δθ(좌우 평균)와 상체 숙임 → 외삽 CoM–발목 거리 (Hof 2005: x + v/√(g/l)). 인과적(실시간용).
+
+    서 있을 때 대비 각도를 넣으므로 절대값보다 '평소 대비 얼마나 뒤인가'를 보는 데 쓴다.
+    """
+
+    def __init__(self, cfg: Config):
+        self.fs, self.shank = cfg.fs, cfg.com_shank_deg
+        self.w0 = np.sqrt(9.81 / cfg.com_leg_m)
+        self.f_v = _Lowpass(cfg.fs, cfg.com_cutoff_hz)
+        self.prev = None
+
+    def __call__(self, dtheta: float, lean: float) -> tuple[float, float]:
+        x = float(h10_com_dx(dtheta, lean, self.shank))
+        v = self.f_v(0.0 if self.prev is None else (x - self.prev) * self.fs)
+        self.prev = x
+        return x, x + v / self.w0
+
+
 class Segmenter:
     """서 있음 → 내려감 → 앉음을 판단한다. 양쪽 허벅지 평균 움직임을 본다."""
 
@@ -153,8 +207,9 @@ class Segmenter:
         self.stand_trunk = None      # 서 있을 때 상체 각도
         self.onset_t = None
         self.contact_t = None
-        self._n_onset = self._n_seat = self._n_rise = 0
+        self._n_onset = self._n_seat = self._n_rise = self._n_resume = 0
         self._cand_t = None
+        self._seat_by_vel = False
 
     def update(self, t: float, th: np.ndarray, w: np.ndarray, seat: float,
                trunk: float = np.nan, impact: float = np.nan) -> tuple[np.ndarray, float]:
@@ -195,6 +250,7 @@ class Segmenter:
                     self._cand_t = t
                 if self._n_seat >= hold_seat:
                     self.phase, self.contact_t = Phase.SEATED, self._cand_t
+                    self._seat_by_vel, self._n_resume = True, 0
             else:
                 self._n_seat = 0
             self._n_rise = self._n_rise + 1 if wm < -c.onset_vel else 0
@@ -204,8 +260,20 @@ class Segmenter:
                 else:                                     # 얕을 때면 앉다가 다시 일어섬 → 취소
                     self.phase = Phase.STANDING
 
-        elif self.phase == Phase.SEATED and dm < c.stand_depth:
-            self.phase = Phase.STANDING
+        elif self.phase == Phase.SEATED:
+            if dm < c.stand_depth:
+                self.phase, self._seat_by_vel = Phase.STANDING, False
+            elif self._seat_by_vel and c.resume_vel > 0:
+                hit_seat = (not np.isnan(seat) and seat > 0.5) or (not np.isnan(impact) and impact > c.impact_thr)
+                if hit_seat:                               # 진짜로 닿았다 → 더는 되돌리지 않음
+                    self._seat_by_vel = False
+                elif (w > c.resume_vel).all():
+                    self._n_resume += 1
+                    if self._n_resume >= hold_on:          # 멈칫 뒤 다시 내려감 → 하강으로 되돌림
+                        self.phase, self.contact_t, self._seat_by_vel = Phase.DESCENT, None, False
+                        self._n_seat = self._n_rise = 0
+                else:
+                    self._n_resume = 0
         return d, lean
 
 
@@ -227,6 +295,8 @@ def segment_trial(df: pd.DataFrame, cfg: Config = Config()) -> dict:
     n = len(t)
     d, w, a = np.zeros((n, 2)), np.zeros((n, 2)), np.zeros((n, 2))
     lean = np.full(n, np.nan)
+    xcom = np.full(n, np.nan)
+    com_est = ComEstimator(cfg)
     onset_t = contact_t = None
     for k in range(n):
         out = [kin[i](thighs[k, i]) for i in (0, 1)]
@@ -236,11 +306,13 @@ def segment_trial(df: pd.DataFrame, cfg: Config = Config()) -> dict:
         tr = f_trunk(trunk[k]) if not np.isnan(trunk[k]) else np.nan
         imp = f_acc(acc[k]) if not np.isnan(acc[k]) else np.nan
         d[k], lean[k] = seg.update(t[k], th, w[k], seat[k], tr, imp)
+        if not np.isnan(lean[k]):
+            xcom[k] = com_est(d[k].mean(), lean[k])[1]
         if onset_t is None and seg.onset_t is not None:
             onset_t = seg.onset_t
         if onset_t is not None and contact_t is None and seg.contact_t is not None:
             contact_t = seg.contact_t
-    return {"t": t, "dtheta": d, "omega": w, "alpha": a, "lean": lean,
+    return {"t": t, "dtheta": d, "omega": w, "alpha": a, "lean": lean, "xcom": xcom,
             "onset_t": onset_t, "contact_t": contact_t}
 
 
@@ -260,6 +332,8 @@ class Profile:
     n_trials: int
     lean_mu: list | None = None   # 구간별 평소 상체 숙임 (deg). 허리 IMU가 없으면 None
     lean_sd: list | None = None
+    com_mu: list | None = None    # 구간별 평소 외삽 CoM–발목 거리 (다리 길이 배). 허리 IMU가 없으면 None
+    com_sd: list | None = None
 
     def ref(self, side: int, d: float) -> tuple[float, float]:
         mu, sd = (self.mu_l, self.sd_l) if side == 0 else (self.mu_r, self.sd_r)
@@ -271,6 +345,9 @@ class Profile:
 
     def lean_ref(self, d: float) -> tuple[float, float]:
         return float(np.interp(d, self.centers, self.lean_mu)), float(np.interp(d, self.centers, self.lean_sd))
+
+    def com_ref(self, d: float) -> tuple[float, float]:
+        return float(np.interp(d, self.centers, self.com_mu)), float(np.interp(d, self.centers, self.com_sd))
 
     def deep_threshold(self, cfg: Config = Config()) -> float:
         return self.contact_mean + max(cfg.deep_margin_sd * self.contact_sd, cfg.deep_min_margin)
@@ -325,6 +402,10 @@ class Profile:
         if not np.isnan(segs[0]["lean"]).all():
             lmu, lsd = binned(lambda s: s["lean"])
             lean_mu, lean_sd = lmu.round(3).tolist(), np.maximum(lsd, cfg.min_lean_sd).round(3).tolist()
+        com_mu = com_sd = None
+        if not np.isnan(segs[0]["xcom"]).all():
+            cmu, csd = binned(lambda s: s["xcom"])
+            com_mu, com_sd = cmu.round(4).tolist(), np.maximum(csd, cfg.min_com_sd).round(4).tolist()
 
         alphas = np.array(alphas)
         return cls(centers=centers.round(2).tolist(),
@@ -333,7 +414,7 @@ class Profile:
                    contact_mean=round(float(contacts.mean()), 3),
                    contact_sd=round(float(contacts.std(ddof=1)), 3),
                    alpha_max=round(float(alphas.mean() + cfg.alpha_sd * alphas.std(ddof=1)), 3),
-                   n_trials=len(segs), lean_mu=lean_mu, lean_sd=lean_sd)
+                   n_trials=len(segs), lean_mu=lean_mu, lean_sd=lean_sd, com_mu=com_mu, com_sd=com_sd)
 
     def save(self, path: Path) -> None:
         Path(path).write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False))
@@ -364,6 +445,7 @@ class SitAssistController:
         self.f_trunk = _Lowpass(cfg.fs, cfg.trunk_cutoff_hz)
         self.f_acc = _Highpass(cfg.fs, cfg.accel_hp_hz)
         self.seg = Segmenter(cfg)
+        self.com = ComEstimator(cfg)
         self.tau = np.zeros(2)
         self.deep_thr = profile.deep_threshold(cfg)
         self.info: dict = {}
@@ -396,6 +478,15 @@ class SitAssistController:
             if lean < lean_ref - max(c.upright_margin_sd * lean_sd, c.upright_min_margin):
                 posture = Posture.UPRIGHT
 
+        # 외삽 CoM: 평소보다 발 뒤로 얼마나 빠졌는가 (z_com > 0이면 평소보다 뒤)
+        com_x = xcom = xcom_ref = np.nan
+        z_com = 0.0
+        if has_trunk:
+            com_x, xcom = self.com(dm, lean)
+            if moving and late and p.com_mu is not None:
+                xcom_ref, com_sd = p.com_ref(dm)
+                z_com = (xcom_ref - xcom) / com_sd
+
         # 1) 상체 지지 토크: 숙인 상체를 버티는 신전근 부담을 일부 덜어 줌
         support = 0.0
         if has_trunk and moving:
@@ -418,6 +509,9 @@ class SitAssistController:
                 if a[i] > p.alpha_max and w[i] > ref[i]:     # 털썩 내려앉는 급가속
                     z[i] = max(z[i], c.z_strong)
                 brake[i] = max(g * (z[i] - c.z_weak), 0.0)
+                if c.com_gain > 0:   # 3) CoM 제동: 속도도 CoM도 각각은 애매하게 평소보다 나쁠 때 둘을 합쳐 판단
+                    z_sum = max(z[i], 0.0) + max(z_com, 0.0)
+                    brake[i] = max(brake[i], c.com_gain * (z_sum - c.com_sum_thr))
 
         target = np.clip(support + brake, 0.0, c.tau_max)
         # 토크가 갑자기 걸리거나 빠지지 않도록 변화 속도 제한
@@ -430,7 +524,8 @@ class SitAssistController:
                      "dtheta_l": d[0], "dtheta_r": d[1], "omega_l": w[0], "omega_r": w[1],
                      "alpha_l": a[0], "alpha_r": a[1], "omega_ref_l": ref[0], "omega_ref_r": ref[1],
                      "z_l": z[0], "z_r": z[1], "lean": lean, "lean_ref": lean_ref,
-                     "impact": impact, "tau_support": support, "tau_brake": brake.max(),
+                     "impact": impact, "com_x": com_x, "xcom": xcom, "xcom_ref": xcom_ref, "z_com": z_com,
+                     "tau_support": support, "tau_brake": brake.max(),
                      "tau_cmd_l": self.tau[0], "tau_cmd_r": self.tau[1]}
         if self.shadow:
             return 0.0, 0.0
