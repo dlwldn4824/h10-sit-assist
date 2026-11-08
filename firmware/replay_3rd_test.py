@@ -93,6 +93,7 @@ def plot(r: pd.DataFrame, path: str):
     from matplotlib import font_manager as fm
     fm.fontManager.addfont("/System/Library/Fonts/AppleSDGothicNeo.ttc")
     plt.rcParams["font.family"] = "Apple SD Gothic Neo"; plt.rcParams["axes.unicode_minus"] = False
+    plt.rcParams["font.size"] = 13
     C = {"그냥": "#8a8f8c", "털썩": "#d64545"}; t = np.arange(-300, 51) / 100
     fig, ax = plt.subplots(1, 3, figsize=(16, 4.6), dpi=160, gridspec_kw={"width_ratios": [1, 1, 1.1]})
     one = r.group.str.startswith("첫 번째")
@@ -103,19 +104,19 @@ def plot(r: pd.DataFrame, path: str):
             m = np.nanmean(X, 0); q1, q3 = np.nanpercentile(X, [25, 75], 0)
             a.fill_between(t, q1, q3, color=C[ty], alpha=.18, lw=0)
             a.plot(t, m, color=C[ty], lw=2.4, label=f"{'그냥 앉기' if ty == '그냥' else '털썩 주저앉기'} (n={len(X)})")
-        a.axvline(0, color="#333", lw=1, ls="--"); a.text(0.03, 9.4, "엉덩이가 닿음", fontsize=10)
+        a.axvline(0, color="#333", lw=1, ls="--"); a.text(0.03, 9.4, "엉덩이가 닿음", fontsize=12)
         a.set_ylim(-0.3, 10); a.set_xlim(-3, 0.5); a.set_xlabel("엉덩이가 닿기까지 시간 (s)")
         a.set_ylabel("H10 제동 토크 (Nm)")
-        a.set_title(f"{n} 코드: " + ("구간이 열리면 항상 9 Nm" if n == "2차" else "기본 3 Nm + 위험도만큼 (최대 9)"), fontsize=12)
-        a.legend(loc="upper left", fontsize=10, frameon=False); a.grid(alpha=.25)
+        a.set_title(f"{n} 코드: " + ("구간이 열리면 항상 9 Nm" if n == "2차" else "기본 3 Nm + 위험도만큼 (최대 9)"), fontsize=15)
+        a.legend(loc="upper left", fontsize=12.5, frameon=False); a.grid(alpha=.25)
     from scipy.stats import spearmanr
     a = ax[2]
     for n, mk, col in [("2차", "o", "#b9bdbb"), ("3차", "o", "#2e7d4f")]:
         x = r[r.alg == n]; rho, p = spearmanr(x.mean_on, x.dx)
         a.scatter(x.dx, x.mean_on, s=26, marker=mk, color=col, alpha=.85, label=f"{n}  ρ = {rho:+.2f} (p = {p:.0e})")
-    a.set_xlabel("카메라 CoM – 발목 거리, 닿을 때 (다리 길이 배, 왼쪽일수록 뒤로 빠짐)")
-    a.set_ylabel("닿기 전 평균 제동 토크 (Nm)"); a.set_title("CoM이 뒤로 빠질수록 세게 제동하나 (착석 60회)", fontsize=12)
-    a.legend(loc="upper right", fontsize=10, frameon=False); a.grid(alpha=.25)
+    a.set_xlabel("카메라 CoM – 발목 거리 (왼쪽일수록 뒤로 빠짐)")
+    a.set_ylabel("닿기 전 평균 제동 토크 (Nm)"); a.set_title("CoM이 뒤로 빠질수록 세게 제동하나 (착석 60회)", fontsize=15)
+    a.legend(loc="upper right", fontsize=12.5, frameon=False); a.grid(alpha=.25)
     fig.tight_layout(); fig.savefig(path, bbox_inches="tight"); print("그림:", path)
 
 
