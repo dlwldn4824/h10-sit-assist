@@ -27,6 +27,7 @@ from pptx.util import Cm, Pt
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE))
 WINE = RGBColor(0x77, 0x22, 0x35)
 PINK = RGBColor(0xF6, 0xE6, 0xE9)
 GRAY = RGBColor(0x55, 0x55, 0x55)
@@ -263,7 +264,10 @@ def real_stats(real_dir: Path) -> dict:
     p = load_participant(real_dir)
     m = pd.DataFrame([trial_metrics(df) for df in p["calib"]])
     ch = json.loads((HERE.parent / "results" / "real" / "chair_stats.json").read_text())
-    return {"chair": ch, "n_used": len(p["calib"]), "dur": m.descent_time.mean(), "peak": m.peak_vel.mean(),
+    from make_figures import fig_lead
+    import tempfile
+    lead = fig_lead(HERE.parent / "data" / "real" / "1107_set", Path(tempfile.mkdtemp()))
+    return {"chair": ch, "lead": lead, "n_used": len(p["calib"]), "dur": m.descent_time.mean(), "peak": m.peak_vel.mean(),
             "quiet": ch["brake_quiet45"], "late": ch["late_caught45"], "late_k": ch["late_k"]}
 
 
@@ -288,6 +292,8 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     paras = tbl.cell(0, 0).text_frame.paragraphs
     set_paragraph(paras[0], TITLE[0])
     paras[1].alignment = paras[0].alignment          # 빈 줄을 제목 둘째 줄로 사용
+    for r in list(paras[1].runs):                    # 이미 만든 포스터를 양식으로 다시 쓸 때 둘째 줄이 겹치지 않게
+        paras[1]._p.remove(r._r)
     paras[1]._p.append(copy.deepcopy(paras[0].runs[0]._r))
     paras[1].runs[0].text = TITLE[1]
     set_paragraph(paras[2], COURSE)
@@ -387,10 +393,11 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
         " 쉽습니다.[1][5] 팔걸이를 짚는 보상 전략[7]은 의자가 낮거나 짚을 곳이 없으면 불가능하며, "
         "낮은 의자일수록 고관절을 더 깊이 굽힌 채 오래 버텨야 합니다.[3]"]], size=20)
     sub(X1, 43.1, W1, "연구 목표")
-    body(X1, 44.7, W1, 3.4, [
+    body(X1, 44.6, W1, 3.7, [
         [("① ", W_), "착석 각도로 낮은 의자 착석을 자동으로 감지합니다."],
-        [("② ", W_), "개인의 평소 착석 속도를 기준으로 과도한 하강에만 제동합니다."]],
-        size=20, space_after=2, color=INK)
+        [("② ", W_), "개인의 평소 착석 속도를 기준으로 과도한 하강에만 제동합니다."],
+        [("③ ", W_), "카메라 CoM과 비교한 상체 숙임으로 털썩 주저앉기를 착석 전에 알아채 미리 제동합니다."]],
+        size=18, space_after=1, color=INK)
 
     # 02 실험 설계 및 데이터 ----------------------------------------------------------------
     X2, W2 = 46.8, 40.6
@@ -408,7 +415,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
         dotted([(xc - 0.7, top), (xc - 0.7, floor)], color=WINE)
         text(s, xc - 4.4, (top + floor) / 2 - 0.7, 3.6, 1.4, [lab], size=19, bold=True, color=WINE,
              align=PP_ALIGN.RIGHT, space_after=0)
-    pill(X2 + 15.0, 32.0, W2 - 17.8, 1.2, f"의자별 연속 착석 {st['chair']['n45']}회 · 1 kHz 기록", fill=DGRAY, size=16)
+    pill(X2 + 15.0, 32.0, W2 - 17.8, 1.2, f"의자별 착석 {st['chair']['n45']}회 · 카메라 CoM 검증 60회", fill=DGRAY, size=16)
     sub(X2, 34.4, W2, "측정 데이터")
     picture(s, figs / "fig_session.png", X2, 35.9, W2)
 
@@ -419,7 +426,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
              ("2", "자세 추정", "굽힘 각도 · 각속도 · 상체 숙임"),
              ("3", "개인 기준 비교", "같은 각도의 평소 속도와 비교"),
              ("4", "착석 단계 판단", "서 있음 · 앉는 중 · 낮은 의자 · 앉음"),
-             ("5", "보조 토크 산출", "상체 지지 + 적응형 하강 제동"),
+             ("5", "보조 토크 산출", "적응형 하강 제동 + 자세 판정 즉시 제동"),
              ("6", "H10 출력", "고관절 신전 토크 10 Nm 이하")]
     sw6 = (84.8 - 5 * 1.0) / 6
     for i, (num, title, desc) in enumerate(steps):
@@ -441,8 +448,8 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     sub(x + 0.8, top3 + 0.6, cw3 - 1.6, "착석 단계 판단", size=22)
     states = [("서 있음", RGBColor(0x8A, 0x8A, 0x8A), "기준 자세를 갱신하며 토크는 0입니다.",
                "양쪽 허벅지가 0.1초간 굽혀지면"),
-              ("앉는 중", WINE, "평소 속도와 비교해 지지 · 제동합니다.", "평소 착석 각도 + 2SD를 넘으면"),
-              ("낮은 의자", RGBColor(0xA8, 0x3A, 0x4E), "제동을 1.5배로 강화합니다.", "움직임이 0.15초간 멈추면"),
+              ("앉는 중", WINE, "평소 속도 · 상체 숙임과 비교해 제동합니다.", "평소 착석 각도 + 2SD를 넘으면"),
+              ("낮은 의자", RGBColor(0xA8, 0x3A, 0x4E), "제동을 1.5배로 강화합니다.", "엉덩이 충격 · 0.15초 멈춤 (다시 내려가면 되돌림)"),
               ("앉음", DGRAY, "0.3초에 걸쳐 토크를 해제합니다.", "")]
     y = top3 + 2.6
     for name, col, desc, cond in states:
@@ -461,19 +468,20 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
         f"보조 없이 앉은 {st['n_used']}회를 허벅지 각도 5° 구간마다 저장해, 사람마다 다른 '평소 속도'를 기준으로 삼습니다."],
         size=17)
     picture(s, figs / "fig_profile.png", x + 0.6, top3 + 5.6, cw3 - 1.2)
-    params = [("허용 폭 하한", "25°/s"), ("제동 시작", "평소 착석 각도의 50%"), ("제동 임계 점수", "3.5")]
+    params = [("허용 폭 하한", "25°/s"), ("제동 시작", "평소 착석 각도의 50%"), ("제동 임계 점수", "3.5"),
+              ("상체 덜 숙임 판정", "평소 숙임 − 2SD")]
     for k, (nm, val) in enumerate(params):
-        yy = top3 + 16.4 + k * 2.2
+        yy = top3 + 16.0 + k * 1.85
         body(x + 0.8, yy, 12.0, 1.8, [nm], size=18, color=SUBG)
         body(x + 12.0, yy, cw3 - 12.8, 1.8, [{"t": val, "align": PP_ALIGN.RIGHT}], size=18, color=INK)
-        if k < 2:
-            dotted([(x + 0.9, yy + 1.95), (x + cw3 - 0.9, yy + 1.95)], color=LINE)
+        if k < len(params) - 1:
+            dotted([(x + 0.9, yy + 1.7), (x + cw3 - 0.9, yy + 1.7)], color=LINE)
 
     x = xs[2]
     sub(x + 0.8, top3 + 0.6, cw3 - 1.6, "보조 토크 설계", size=22)
     picture(s, assets / "muscles_wine.png", x + 0.6, top3 + 2.4, cw3 - 1.2)
-    torques = [("상체 지지", "숙인 각도에 비례한 신전 토크로 신전근의 부담을 경감합니다."),
-               ("적응형 하강 제동", "착석 후반에 평소보다 크게 빠를 때에만 제동합니다."),
+    torques = [("적응형 하강 제동", "착석 후반에 평소보다 크게 빠를 때에만 제동합니다. 낮은 의자면 1.5배."),
+               ("자세 판정 즉시 제동 (2차)", "평소보다 상체를 덜 숙이면 속도와 상관없이 바로 1.5 Nm로 제동합니다."),
                ("안전 제한", "10 Nm 이하, 상승 속도 60 Nm/s 이하로 제한합니다.")]
     y = top3 + 12.8
     for i, (title, desc) in enumerate(torques):
@@ -488,7 +496,7 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     stats = [(f"+{st['chair']['deeper_by']:.1f}°", "30 cm 착석 각도 증가"),
              (f"{st['chair']['deep30']}/{st['chair']['n30']}", "낮은 의자 판정"),
              (f"{st['quiet']}/{st['n_used']}", "정상 착석 제동 없음"),
-             (f"{st['late']}/{st['n_used']}", "가속 착석 제동")]
+             (f"{st['lead']['v2_caught']}/{st['lead']['n_plop']}", "털썩 주저앉기 착석 전 제동")]
     sw = (W4 - 3 * 0.8) / 4
     for i, (big, lab) in enumerate(stats):
         x = X4 + i * (sw + 0.8)
@@ -499,8 +507,8 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     sub(X4 + 0.7, 91.1, 19.6, "의자 높이별 착석 각도", size=19)
     picture(s, figs / "fig_chairs.png", X4 + 1.8, 92.6, 17.4)
     panel(X4 + 21.8, 90.8, W4 - 21.8, 19.6)
-    sub(X4 + 22.5, 91.1, W4 - 23.2, f"가상 급하강 재생 (후반 {st['late_k']:g}배 가속)", size=19)
-    picture(s, figs / "fig_trial_real.png", X4 + 25.4, 92.6, 23.4)
+    sub(X4 + 22.5, 91.1, W4 - 23.2, "털썩 주저앉기 착석 전 판정 (1차 vs 2차)", size=19)
+    picture(s, figs / "fig_lead.png", X4 + 23.6, 92.6, 26.6)
     body(X4, 110.7, W4, 3.4, [
         {"t": "[1] Robinovitch SN et al. Lancet. 2013;381:47–54.  [2] Chen LK et al. JAMDA. 2020;21:300–307.  "
               "[3] Yoshioka S et al. BioMed Eng OnLine. 2014;13:27.  [5] Dubost V et al. Phys Ther. 2005;85:404–412.  "
@@ -519,14 +527,16 @@ def build(template: Path, out: Path, figs: Path, metrics_csv: Path, real_dir: Pa
     body(X5 + 0.8, 96.4, W5 - 1.6, 9.4, [
         [("낮은 의자 감지  ", B), f"착석 각도가 {st['chair']['deeper_by']:.1f}° 증가했고 {st['chair']['n30']}회 중 "
                                    f"{st['chair']['deep30']}회를 감지했습니다."],
-        [("오작동 억제  ", B), f"정상 착석 {st['n_used']}회 중 {st['quiet']}회에서 제동하지 않았습니다."],
-        [("급하강 대응  ", B), f"후반이 빨라진 가상 착석 {st['n_used']}회 중 {st['late']}회에서 제동했습니다."]],
+        [("CoM 대리 지표  ", B), "카메라 CoM과 비교한 60회에서 H10 충격 · 속도 ρ ≈ −0.6, H10 추정 CoM r = 0.74였습니다."],
+        [("착석 전 제동  ", B), f"2차 알고리즘은 털썩 주저앉기 {st['lead']['n_plop']}회를 모두 착석 약 "
+                               f"{st['lead']['lead_med']:.1f}초 전에 제동했습니다 (1차 0회)."]],
         size=20, space_after=12, color=INK)
     panel(X5, 106.6, W5, 7.4)
-    sub(X5 + 0.8, 106.9, W5 - 1.6, "한계 및 향후 연구", size=20)
+    sub(X5 + 0.8, 106.9, W5 - 1.6, "1차 실측 → 2차 개선", size=20)
     body(X5 + 0.8, 108.4, W5 - 1.6, 5.4, [
-        "건강한 성인 1명의 결과이며, 실제 제동 효과는 H10 보조 OFF/ON 비교와 고령자 실험으로 검증할 계획입니다."],
-        size=19)
+        "1차 H10 ON 실측의 후반 제동 부족 · 앉기 전 보조 · 서 있을 때 오작동을 멈칫 뒤 재하강 처리와 자세 판정 "
+        "즉시 제동으로 고쳤고, 2차 실측으로 검증합니다. 피험자 2명 · 2D 카메라의 한계가 있습니다."],
+        size=17)
 
     # 양식의 제목줄 · 제목 표 글꼴도 맞춘다
     for r in tree.iter(qn("a:r")):

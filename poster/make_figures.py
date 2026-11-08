@@ -581,6 +581,61 @@ def fig_armrest(d45: Path, darm: Path, out: Path, cfg: Config = Config()):
     plt.close(fig)
 
 
+def fig_lead(set_dir: Path, out: Path, cfg: Config = Config()):
+    """털썩 주저앉기를 착석 몇 초 전에 알아채는가: 평소 착석 9회로 기준을 만들고 같은 사람의 털썩 11회를 재생.
+    1차(속도 제동만)와 2차(상체 덜 숙임 판정 즉시 제동)의 제동 시작 시각을 함께 그린다."""
+    from dataclasses import replace
+    from matplotlib.lines import Line2D
+    dfs = [pd.read_csv(f) for f in sorted(set_dir.glob("calib_rep*.csv"))]
+    normal, plop = dfs[:9], dfs[9:]
+    prof = Profile.from_trials(normal, cfg)
+    rows = []
+    for lab, ds in (("털썩 주저앉기", plop), ("그냥 앉기", normal)):
+        for d in ds:
+            first = {}
+            for name, c in (("v1", replace(cfg, upright_brake=0.0)), ("v2", cfg)):
+                r = run_trial(d, prof, c)
+                t, ph = r.time_s.to_numpy(), r.phase.to_numpy()
+                tc = t[np.where(ph == 3)[0][0]]
+                b = np.where((np.maximum(r.tau_cmd_l, r.tau_cmd_r).to_numpy() > 0) & (t <= tc))[0]
+                first[name] = t[b[0]] - tc if len(b) else np.nan
+                if name == "v2":
+                    start = t[np.where(ph >= 1)[0][0]] - tc
+            rows.append((lab, start, first["v1"], first["v2"]))
+    fig, ax = plt.subplots(figsize=(8.6, 5.6))
+    y, ticks = 0, []
+    for lab in ("털썩 주저앉기", "그냥 앉기"):
+        sub = [r for r in rows if r[0] == lab]
+        for _, st, v1, v2 in sub:
+            ax.plot([st, 0], [y, y], color="#d9d9dc", lw=5, solid_capstyle="round", zorder=1)
+            if not np.isnan(v2):
+                ax.plot(v2, y, "o", color=WINE, ms=9, mec="white", mew=1.2, zorder=3)
+            if not np.isnan(v1):
+                ax.plot(v1, y, "s", color=GRAY, ms=8, mec="white", mew=1.0, zorder=4)
+            y -= 1
+        ticks.append((y + len(sub) / 2 + 0.5, lab))
+        y -= 1.2
+    ax.axvline(0, color="#333", lw=1.4, ls="--")
+    ax.text(0.03, 0.6, "의자에 닿음", fontsize=12, va="bottom")
+    ax.set_yticks([t for t, _ in ticks]); ax.set_yticklabels([l for _, l in ticks], fontsize=13)
+    ax.tick_params(axis="y", length=0)
+    ax.set_xlim(-3.0, 0.5); ax.set_xlabel("의자에 닿기까지 남은 시간 (s)", fontsize=13)
+    ax.tick_params(axis="x", labelsize=12)
+    for k in ("top", "right", "left"):
+        ax.spines[k].set_visible(False)
+    ax.grid(axis="x", alpha=0.25)
+    h = [Line2D([], [], color="#d9d9dc", lw=5, label="내려가는 구간"),
+         Line2D([], [], marker="o", color=WINE, ls="", ms=9, label="2차: 제동 시작"),
+         Line2D([], [], marker="s", color=GRAY, ls="", ms=8, label="1차: 제동 시작 (닿기 전 0회)")]
+    ax.legend(handles=h, frameon=False, fontsize=12, loc="lower left", ncol=3, bbox_to_anchor=(0, -0.28))
+    fig.tight_layout()
+    fig.savefig(out / "fig_lead.png", dpi=200, facecolor="white")
+    plt.close(fig)
+    v2 = [-r[3] for r in rows if r[0] == "털썩 주저앉기" and not np.isnan(r[3])]
+    v1 = [r for r in rows if r[0] == "털썩 주저앉기" and not np.isnan(r[2])]
+    return {"n_plop": len(plop), "v2_caught": len(v2), "v1_caught": len(v1), "lead_med": float(np.median(v2)) if v2 else float("nan")}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--real", default="data/real/chair45", help="preprocess_h10.py로 만든 실측 폴더 (45 cm 착석 30회)")
@@ -627,6 +682,10 @@ def main():
         st = json.loads(chair_stats.read_text())
         st["_profile"] = str(HERE_ROOT / "results" / "real" / "profile_45ref.json")
         fig_chairs(HERE_ROOT / "data" / "real" / "chair45", HERE_ROOT / "data" / "real" / "chair30", st, out)
+
+    lead_dir = HERE_ROOT / "data" / "real" / "1107_set"
+    if lead_dir.exists():
+        print("착석 전 판정:", fig_lead(lead_dir, out))
 
     sim = load_participant(Path(args.sim))
     sim_prof = Profile.from_trials(sim["calib"])
