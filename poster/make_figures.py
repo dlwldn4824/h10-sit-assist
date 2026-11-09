@@ -15,6 +15,7 @@ from pathlib import Path
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+# 그래프 위에 제목을 달지 않는다: 칸 표시 (a)(b)만 두고, 설명은 포스터 · 슬라이드 캡션에 쓴다
 import pandas as pd
 
 HERE_ROOT = Path(__file__).resolve().parents[1]
@@ -342,8 +343,8 @@ def fig_profile(p: dict, prof: Profile, out: Path, cfg: Config = Config(), highl
     ax[0].set_ylabel("허벅지 굴곡 속도 (deg/s)")
     ax[1].set_ylabel("상체 숙임 (deg)")
     ax[1].set_ylim(min(-3, float(lo.min()) - 3), max(lm) + 20)
-    ax[0].set_title(f"① 하강 속도 기준 (실측 착석 {prof.n_trials}회)")
-    ax[1].set_title("② 상체 숙임 기준 (허리 IMU)")
+    ax[0].set_title("(a)", loc="left", fontweight="bold")
+    ax[1].set_title("(b)", loc="left", fontweight="bold")
     fig.tight_layout()
     fig.savefig(out / "fig_profile.png", dpi=200, facecolor="white")
     plt.close(fig)
@@ -369,8 +370,8 @@ def fig_compare(p: dict, prof: Profile, out: Path, cfg: Config = Config(), tall:
         a.set_xlabel("허벅지 굴곡 Δθ (deg)")
     ax[0].set_ylabel("허벅지 굴곡 속도 (deg/s)")
     ax[1].set_ylabel("상체 숙임 (deg)")
-    ax[0].set_title("하강 속도: 30 cm 후반부 급가속이 줄어듦")
-    ax[1].set_title("상체 숙임: 조건 사이 차이는 작음")
+    ax[0].set_title("(a)", loc="left", fontweight="bold")
+    ax[1].set_title("(b)", loc="left", fontweight="bold")
     fig.legend(*ax[0].get_legend_handles_labels(), loc="lower center", ncol=3, frameon=False)
     fig.tight_layout(rect=(0, 0.06 if tall else 0.1, 1, 1))
     fig.savefig(out / ("fig_compare_tall.png" if tall else "fig_compare.png"), dpi=200, facecolor="white")
@@ -401,12 +402,12 @@ def fig_chairs(d45: Path, d30: Path, stats: dict, out: Path, cfg: Config = Confi
     ax[0].text(stats["deep_thr"] + 0.6, ax[0].get_ylim()[1] * 0.9, "DEEP 기준", fontsize=15)
     ax[0].set_xlabel("허벅지 굴곡 Δθ (deg)")
     ax[0].set_ylabel("허벅지 굴곡 속도 (deg/s)")
-    ax[0].set_title("실측 하강 곡선: 30 cm는 더 깊이 내려감")
+    ax[0].set_title("(a)", loc="left", fontweight="bold")
     ax[0].legend(loc="upper left", frameon=False)
     ax[1].set_yticks([0, 1], [f"45 cm ({stats['n45']}회)", f"30 cm ({stats['n30']}회)"])
     ax[1].set_ylim(-0.6, 1.6)
     ax[1].set_xlabel("엉덩이가 닿는 순간의 허벅지 굴곡 Δθ (deg)")
-    ax[1].set_title(f"착석 각도: 평균 {stats['contact45']:.1f}° → {stats['contact30']:.1f}° (+{stats['deeper_by']:.1f}°)")
+    ax[1].set_title("(b)", loc="left", fontweight="bold")
     fig.tight_layout()
     fig.savefig(out / "fig_chairs.png", dpi=200, facecolor="white")
     plt.close(fig)
@@ -473,8 +474,7 @@ def fig_session(raw45: Path, raw30: Path, out: Path):
             a.axvspan(ev["onset"] / 100, ev["end"] / 100, color=WINE, alpha=0.16, lw=0)
         a.plot(t, m, c=WINE if lab == "30 cm" else "#33363d", lw=1.6)
         a.set_ylabel("굽힘 (°)")
-        a.set_title(f"{lab} 의자 · 착석 10회 연속 기록", loc="left", fontsize=17, fontweight="bold",
-                    color=WINE if lab == "30 cm" else "#33363d", pad=4)
+        a.set_title(("(a) " if lab == "45 cm" else "(b) ") + lab, loc="left", fontsize=17, fontweight="bold", pad=4)
         a.set_xlim(0, min(60, float(t.iloc[-1])))
         a.set_yticks([0, 50, 100])
     ax[1].set_xlabel("시간 (s)")
@@ -515,7 +515,7 @@ def fig_design(real: dict, out: Path, late_k: float = 1.5):
     a.text(half + 1, 322, "수정 제동 구간 (후반 50%)", fontsize=12, va="top")
     a.set_xlabel("허벅지 굽힘 Δθ (°)")
     a.set_ylabel("굽힘 속도 (°/s)")
-    a.set_title("(a) 정상 착석 30회의 속도 편차", loc="left", fontsize=16, fontweight="bold")
+    a.set_title("(a)", loc="left", fontsize=16, fontweight="bold")
     a.legend(loc="upper left", frameon=False, fontsize=11, ncol=1, bbox_to_anchor=(0.0, 1.02))
 
     def peak_z(cfg_, df, prof_):
@@ -547,7 +547,7 @@ def fig_design(real: dict, out: Path, late_k: float = 1.5):
     a.set_ylim(0, 15.6)
     a.set_xlim(-0.6, 4.2)
     a.set_ylabel("최대 이상 점수 z")
-    a.set_title("(b) 설정 수정 전후 제동 판정", loc="left", fontsize=16, fontweight="bold")
+    a.set_title("(b)", loc="left", fontsize=16, fontweight="bold")
     a.legend(loc="upper center", bbox_to_anchor=(0.58, 0.82), frameon=False, fontsize=11)
     fig.tight_layout(h_pad=1.2)
     fig.savefig(out / "fig_design.png", dpi=200, facecolor="white")
@@ -571,11 +571,11 @@ def fig_armrest(d45: Path, darm: Path, out: Path, cfg: Config = Config()):
             first = False
     ax[0].set_xlabel("착석 시작 후 시간 (s)")
     ax[0].set_ylabel("허벅지 굽힘 속도 (°/s)")
-    ax[0].set_title("하강 속도 (점: 엉덩이가 닿는 순간)", loc="left", fontsize=17)
+    ax[0].set_title("(a)", loc="left", fontsize=17, fontweight="bold")
     ax[0].legend(frameon=False, loc="upper right")
     ax[1].set_xlabel("착석 시작 후 시간 (s)")
     ax[1].set_ylabel("상체 숙임 (°)")
-    ax[1].set_title("상체 숙임", loc="left", fontsize=17)
+    ax[1].set_title("(b)", loc="left", fontsize=17, fontweight="bold")
     fig.tight_layout()
     fig.savefig(out / "fig_armrest.png", dpi=200, facecolor="white")
     plt.close(fig)

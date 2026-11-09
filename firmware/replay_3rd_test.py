@@ -107,7 +107,7 @@ def plot(r: pd.DataFrame, path: str):
         a.axvline(0, color="#333", lw=1, ls="--"); a.text(0.03, 9.4, "엉덩이가 닿음", fontsize=12)
         a.set_ylim(-0.3, 10); a.set_xlim(-3, 0.5); a.set_xlabel("엉덩이가 닿기까지 시간 (s)")
         a.set_ylabel("H10 제동 토크 (Nm)")
-        a.set_title(f"{n} 코드: " + ("구간이 열리면 항상 9 Nm" if n == "2차" else "기본 3 Nm + 위험도만큼 (최대 9)"), fontsize=15)
+        a.set_title(f"({'ab'[k]})", loc="left", fontsize=15, fontweight="bold")   # 그래프 제목 대신 칸 표시, 설명은 슬라이드 캡션
         a.legend(loc="upper left", fontsize=12.5, frameon=False); a.grid(alpha=.25)
     from scipy.stats import spearmanr
     a = ax[2]
@@ -115,7 +115,7 @@ def plot(r: pd.DataFrame, path: str):
         x = r[r.alg == n]; rho, p = spearmanr(x.mean_on, x.dx)
         a.scatter(x.dx, x.mean_on, s=26, marker=mk, color=col, alpha=.85, label=f"{n}  ρ = {rho:+.2f} (p = {p:.0e})")
     a.set_xlabel("카메라 CoM – 발목 거리 (왼쪽일수록 뒤로 빠짐)")
-    a.set_ylabel("닿기 전 평균 제동 토크 (Nm)"); a.set_title("CoM이 뒤로 빠질수록 세게 제동하나 (착석 60회)", fontsize=15)
+    a.set_ylabel("닿기 전 평균 제동 토크 (Nm)"); a.set_title("(c)", loc="left", fontsize=15, fontweight="bold")
     a.legend(loc="upper right", fontsize=12.5, frameon=False); a.grid(alpha=.25)
     fig.tight_layout(); fig.savefig(path, bbox_inches="tight"); print("그림:", path)
 
