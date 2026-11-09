@@ -35,7 +35,7 @@ WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 BLACK = RGBColor(0, 0, 0)
 KEEP_IDS = {2, 3, 7, 10}          # 상단 제목줄, 로고 묶음, 제목 표, 테두리
 
-TITLE = ("H10 기반 낮은 의자 착석 감지 및", "적응형 하강 제동 시스템")
+TITLE = ("엔젤로보틱스 고관절 보조 웨어러블 로봇 H10 기반", "낮은 의자 착석 감지 및 적응형 하강 제동 시스템")
 TOP = "2025 <H10 Control Algorithm>"
 COURSE = "교과목명 / 제어알고리즘설계및실습(고찬영 교수님)"
 TEAM = "팀명 / KWAI"
