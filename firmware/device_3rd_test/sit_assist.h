@@ -77,6 +77,7 @@ typedef struct {
     sa_real out[2];               /* 실제로 내보내는 토크 (그림자 모드·안전 상한 반영) */
     sa_real support, brake_max;
     sa_real risk;                 /* 3차: 위험도 0~1 (속도 · 추정 CoM · 낮은 의자 중 최대) */
+    sa_real lean0, guard;         /* v3: 구간 시작 때 상체 숙임, 상체 보호 배율(0~1) */
     /* 1 kHz → 100 Hz: 10샘플 평균 */
     int sub;
     sa_real acc_th[2], acc_inc[2], acc_imu;

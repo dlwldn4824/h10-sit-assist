@@ -65,7 +65,7 @@ def main():
         for n in libs:
             tau, _ = res[(n, f)]
             w = tau[max(c - 300, 0):c + 1]
-            on = np.flatnonzero(w > 0.1); hi = np.flatnonzero(w >= 6.0)
+            on = np.flatnonzero(w > 1.05); hi = np.flatnonzero(w >= 6.0)   # 1.05: v3 미리 당김(1 Nm) 제외
             seg = np.full(351, np.nan); lo = c - 300
             src = tau[max(lo, 0):c + 51]; seg[max(0, -lo):max(0, -lo) + len(src)] = src
             rows.append(dict(alg=n, group=s.group, type=s.type, dx=s.dx_contact, trace=seg,

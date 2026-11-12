@@ -10,6 +10,14 @@
  *   ② 추정 CoM: H10 각도로 계산한 CoM이 평소보다 뒤로 빠진 정도        — 카메라 CoM과 r 0.74.
  *      상체를 덜 숙이면 커지며, 털썩 주저앉기를 착석 약 1초 전에 알려 줌
  *   ③ 낮은 의자: 평소 최대 깊이(69.4°)를 넘으면 위험도 1, 구간을 착석까지 연장
+ *
+ * v3 (11/12 Third_v2 실측 뒤): 착용자가 "다리가 아니라 갈비뼈 쪽을 들어 올린다", "들썩", "앉기 직전 튕김"을 느꼈다.
+ *   로그에서 9 Nm가 걸리면 0.6 s 동안 상체가 약 20° 뒤로 젖혀졌다(고관절 토크의 반작용이 상체를 민다).
+ *   - 상체 보호: 제동 중 상체가 구간 시작 때보다 5° 넘게 젖혀지면 줄이고 10°면 0
+ *   - 추정 CoM 위험도는 유지하되, 상체 보호 배율이 곱해져 "제동 → 젖혀짐 → 더 센 제동" 순환을 끊음
+ *   - 최대 제동 9 → 6 Nm
+ *   - 속도 비례: 허벅지 속도 30°/s 이상에서 전부, 느려지면 비례해 줄고 멈추면 0 (공중에서 세우거나 위로 밀지 않음)
+ *   - 미리 당겨두기 1 Nm(하강 시작 ~ 구간 시작), 오르는 속도 30 Nm/s, 끝날 때 0.3 s에 걸쳐 해제
  */
 #include <math.h>
 #include <string.h>
@@ -22,14 +30,16 @@
 #define SA_BRAKE_STOP_DEPTH 70.0
 #define SA_BRAKE_MIN_VEL 10.0
 #define SA_BRAKE_HOLD_VEL 3.0
-#define SA_BRAKE_PAUSE_HOLD 6  /* 60 ms at 100 Hz */
+#ifndef SA_BRAKE_PAUSE_HOLD
+#define SA_BRAKE_PAUSE_HOLD 50 /* v3: 0.5 s 멈춰야 구간 종료 (속도 비례라 멈추면 토크는 이미 0) */
+#endif
 
 /* 3차: 위험도에 따른 세기 (-D로 바꿀 수 있음) */
 #ifndef SA_BASE_BRAKE
 #define SA_BASE_BRAKE 3.0      /* 평소 착석: 구간이 열리면 이만큼만 (Nm) */
 #endif
 #ifndef SA_RISK_BRAKE
-#define SA_RISK_BRAKE 9.0      /* 위험도 1일 때 (Nm). 2차 실측 세기 */
+#define SA_RISK_BRAKE 6.0      /* 위험도 1일 때 (Nm). v3: 9 → 6 (상체가 젖혀짐) */
 #endif
 #ifndef SA_RISK_Z_LO
 #define SA_RISK_Z_LO 1.0       /* 속도 z가 이 값부터 위험도가 오르기 시작 */
@@ -42,6 +52,30 @@
 #endif
 #ifndef SA_RISK_COM_HI
 #define SA_RISK_COM_HI 0.030   /* 3% 뒤 → 위험도 1 */
+#endif
+#ifndef SA_USE_COM_RISK
+#define SA_USE_COM_RISK 1      /* 추정 CoM 위험도 사용. 제동 → 젖혀짐 → 더 센 제동 순환은 상체 보호(배율)가 끊는다. 0이면 끔 */
+#endif
+#ifndef SA_TRUNK_GUARD_START
+#define SA_TRUNK_GUARD_START 5.0  /* 구간 시작 때보다 상체가 이만큼(°) 젖혀지면 토크를 줄이기 시작 */
+#endif
+#ifndef SA_TRUNK_GUARD_FULL
+#define SA_TRUNK_GUARD_FULL 10.0  /* 이만큼 젖혀지면 토크 0 */
+#endif
+#ifndef SA_DAMP_FULL_VEL
+#define SA_DAMP_FULL_VEL 30.0     /* 허벅지 속도가 이 값(°/s) 이상이면 전부, 아래면 비례 (0이면 끔) */
+#endif
+#ifndef SA_PRELOAD
+#define SA_PRELOAD 1.0            /* 하강 시작 ~ 구간 시작 사이 미리 거는 토크 (Nm). 기어 유격 · 스트랩 미리 당김 */
+#endif
+#ifndef SA_PRELOAD_FROM
+#define SA_PRELOAD_FROM 10.0      /* 허벅지가 이만큼(°) 굽혀진 뒤부터 미리 당김 (서 있을 때 오작동 방지) */
+#endif
+#ifndef SA_RISE_RATE_V3
+#define SA_RISE_RATE_V3 30.0      /* 토크가 오르는 속도 (Nm/s). 기존 60 */
+#endif
+#ifndef SA_RELEASE_V3_S
+#define SA_RELEASE_V3_S 0.3       /* 구간이 끝나면 이 시간에 걸쳐 0으로 */
 #endif
 #ifndef SA_DEEP_STOP_DEPTH
 #define SA_DEEP_STOP_DEPTH 95.0 /* 낮은 의자로 판정되면 구간을 여기(또는 착석)까지 연장 */
@@ -251,8 +285,10 @@ void sa_update_100hz(SA_State *s, sa_real thigh_l, sa_real thigh_r, sa_real trun
     int in_depth = dm >= SA_BRAKE_START_DEPTH && dm < stop_depth;
     int descending = (s->phase == SA_DESCENT || s->phase == SA_DEEP);
     if (!s->brake_done && descending && in_depth) {
-        if (!s->brake_active && w[0] > SA_BRAKE_MIN_VEL && w[1] > SA_BRAKE_MIN_VEL)
+        if (!s->brake_active && w[0] > SA_BRAKE_MIN_VEL && w[1] > SA_BRAKE_MIN_VEL) {
             s->brake_active = 1;
+            s->lean0 = lean;                     /* v3 상체 보호 기준 */
+        }
         if (s->brake_active) {
             /* Bridge brief velocity dips without holding torque at a stop. */
             s->n_brake_pause = wm < SA_BRAKE_HOLD_VEL ? s->n_brake_pause + 1 : 0;
@@ -279,6 +315,12 @@ void sa_update_100hz(SA_State *s, sa_real thigh_l, sa_real thigh_r, sa_real trun
     }
     sa_real risk_com = sa_clip((com_behind - SA_RISK_COM_LO) / (SA_RISK_COM_HI - SA_RISK_COM_LO), 0, 1);
     sa_real risk_deep = s->phase == SA_DEEP ? 1 : 0;
+    if (!SA_USE_COM_RISK) risk_com = 0;
+    /* v3 상체 보호: 구간 시작 때보다 상체가 젖혀진 만큼 줄임 */
+    sa_real guard = 1;
+    if (has_trunk && brake_window && !isnan(lean) && !isnan(s->lean0))
+        guard = sa_clip(1 - (s->lean0 - lean - SA_TRUNK_GUARD_START) / (SA_TRUNK_GUARD_FULL - SA_TRUNK_GUARD_START), 0, 1);
+    s->guard = guard;
     /* 1) 상체 지지 (기본 0) */
     sa_real support = (has_trunk && brake_window) ? SA_SUPPORT_GAIN * sin(sa_max(lean, 0) * 3.14159265358979 / 180) : 0;
     /* 2) 구간 제동: 기본 + 위험도만큼 */
@@ -301,21 +343,27 @@ void sa_update_100hz(SA_State *s, sa_real thigh_l, sa_real thigh_r, sa_real trun
             sa_real risk_v = sa_clip((z - SA_RISK_Z_LO) / (SA_RISK_Z_HI - SA_RISK_Z_LO), 0, 1);
             sa_real risk = sa_max(risk_v, sa_max(risk_com, risk_deep));
             brake[i] = SA_BASE_BRAKE + (SA_RISK_BRAKE - SA_BASE_BRAKE) * risk;
+            /* v3 속도 비례: 느려지면 줄고 멈추거나 올라가면 0 */
+            if (SA_DAMP_FULL_VEL > 0) brake[i] *= sa_clip(w[i] / SA_DAMP_FULL_VEL, 0, 1);
+            brake[i] *= guard;
             zmax = i == 0 ? z : sa_max(zmax, z);
             risk_max = sa_max(risk_max, risk);
         }
     }
     s->risk = risk_max;
-    sa_real up = SA_RISE_RATE / SA_FS, down = SA_TAU_MAX / (SA_RELEASE_S * SA_FS);
+    sa_real up = SA_RISE_RATE_V3 / SA_FS, down = SA_TAU_MAX / (SA_RELEASE_V3_S * SA_FS);
+    /* v3 미리 당겨두기: 내려가기 시작했지만 아직 구간 전 */
+    int preload = !brake_window && !s->brake_done && descending && dm > SA_PRELOAD_FROM;
     for (int i = 0; i < 2; i++) {
-        if (!brake_window) {
-            /* The 1 kHz wrapper already slews motor current to zero. Do not
-               carry an internal torque tail into the chair-contact region. */
-            s->tau[i] = s->out[i] = out[i] = 0;
-            continue;
+        sa_real target;
+        if (brake_window) {
+            target = sa_clip(support + brake[i], 0, SA_TAU_MAX);
+            if (target < SA_PRELOAD && guard > 0) target = SA_PRELOAD;   /* 유격이 다시 생기지 않게 */
+        } else {
+            target = preload ? SA_PRELOAD : 0;   /* 구간이 끝나면 아래 해제 속도로 0까지 */
         }
-        sa_real target = sa_clip(support + brake[i], 0, SA_TAU_MAX);
         s->tau[i] = sa_clip(target, s->tau[i] - down, s->tau[i] + up);
+        if (s->tau[i] < 0) s->tau[i] = 0;
         s->out[i] = shadow ? 0 : sa_min(s->tau[i], SA_TAU_LIMIT);
         out[i] = s->out[i];
     }
