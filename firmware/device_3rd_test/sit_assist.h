@@ -69,7 +69,7 @@ typedef struct {
     SA_Highpass f_acc;            /* 허벅지 IMU 가속도 크기 고역통과 → 착석 충격 */
     sa_real impact;
     int phase, n_onset, n_seat, n_rise, stand_init, level, upright;
-    int seat_by_vel, n_resume;    /* 속도로만 '착석'이라 본 경우: 다시 굽혀지면 하강으로 되돌림 */
+    int seat_by_vel, n_resume, n_impact, n_still;  /* n_impact: 충격 뒤 멈춤 확인을 기다리는 남은 샘플 */    /* 속도로만 '착석'이라 본 경우: 다시 굽혀지면 하강으로 되돌림 */
     int brake_done;               /* One braking window per descent. */
     int brake_active, n_brake_pause;
     sa_real stand[2], stand_trunk;

@@ -46,6 +46,15 @@
 #ifndef SA_DEEP_STOP_DEPTH
 #define SA_DEEP_STOP_DEPTH 95.0 /* 낮은 의자로 판정되면 구간을 여기(또는 착석)까지 연장 */
 #endif
+#ifndef SA_IMPACT_CONFIRM_VEL
+#define SA_IMPACT_CONFIRM_VEL 20.0 /* 충격 뒤 허벅지가 이 속도(°/s) 아래로 멈춰야 착석으로 본다 */
+#endif
+#ifndef SA_IMPACT_STILL_N
+#define SA_IMPACT_STILL_N 8        /* 그 속도 아래가 연속 0.08 s 이어져야 멈춘 것으로 본다 (제동 순간의 짧은 출렁임 제외) */
+#endif
+#ifndef SA_IMPACT_CONFIRM_N
+#define SA_IMPACT_CONFIRM_N 30     /* 충격 뒤 확인을 기다리는 샘플 수 (0.3 s) */
+#endif
 #define SA_COM_SHANK_DEG 17.0  /* H10에 정강이 센서가 없어 평소 정강이 기울기를 가정 */
 
 /* H10 각도만으로 계산한 CoM–발목 앞뒤 거리 (다리 길이 배, 앞이 +). sit_assist.py h10_com_dx와 같음.
@@ -156,7 +165,7 @@ static void segment(SA_State *s, const sa_real th[2], const sa_real w[2], sa_rea
         if (w[0] > SA_ONSET_VEL && w[1] > SA_ONSET_VEL) {
             if (++s->n_onset >= SA_ONSET_HOLD) {
                 s->phase = SA_DESCENT;
-                s->n_onset = s->n_seat = s->n_rise = 0;
+                s->n_onset = s->n_seat = s->n_rise = s->n_impact = s->n_still = 0;
             }
         } else {
             s->n_onset = 0;
@@ -164,8 +173,23 @@ static void segment(SA_State *s, const sa_real th[2], const sa_real w[2], sa_rea
     } else if (s->phase == SA_DESCENT || s->phase == SA_DEEP) {
         if (!isnan(seat)) {                      /* 의자 압력센서가 있으면 그것을 믿는다 */
             if (seat > 0.5) s->phase = SA_SEATED;
-        } else if (!isnan(impact) && impact > SA_IMPACT_THR && dm > SA_MIN_SEAT_DEPTH) {
-            s->phase = SA_SEATED;                /* IMU 충격 = 엉덩이가 의자에 닿음 */
+        } else if (!isnan(impact) && impact > SA_IMPACT_THR && dm > SA_MIN_SEAT_DEPTH && s->n_impact == 0) {
+            /* IMU 충격만으로는 착석으로 보지 않는다. 3차 실측(11/12)에서 제동이 걸릴 때 몸이 갑자기
+               느려지는 흔들림이 충격으로 잡혀, 내려가는 도중(37~69°)에 제동이 풀렸다.
+               충격 뒤 0.3 s 안에 허벅지가 실제로 멈춰야 착석으로 본다. */
+            s->n_impact = SA_IMPACT_CONFIRM_N;
+        }
+        if (s->phase != SA_SEATED && s->n_impact > 0) {
+            s->n_still = fabs(wm) < SA_IMPACT_CONFIRM_VEL ? s->n_still + 1 : 0;
+            if (s->n_still >= SA_IMPACT_STILL_N) {
+                s->phase = SA_SEATED;            /* 충격 + 멈춤 = 엉덩이가 의자에 닿음 */
+                s->n_impact = s->n_still = 0;
+            } else if (--s->n_impact == 0) {
+                s->n_still = 0;                  /* 멈추지 않고 계속 내려감 → 충격 무시, 제동 유지 */
+            }
+        }
+        if (s->phase == SA_SEATED || !isnan(seat)) {
+            /* 위에서 착석 판정됨 */
         } else if (fabs(wm) < SA_SEAT_VEL && dm > SA_MIN_SEAT_DEPTH) {
             if (++s->n_seat >= SA_SEAT_HOLD) {
                 s->phase = SA_SEATED;
